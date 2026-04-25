@@ -7,11 +7,11 @@ import os
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
-# 尝试导入 OpenAI SDK
+# 尝试导入 Anthropic SDK (MiniMax)
 try:
-    from openai import OpenAI
+    import anthropic
 except ImportError:
-    OpenAI = None
+    anthropic = None
 
 from src.models.schema import FSMOutput
 from src.db.faiss_client import FAISSIChingClient
@@ -168,41 +168,30 @@ class IChingChain:
     def __init__(
         self,
         milvus_client: Optional[FAISSIChingClient] = None,
-        openai_api_key: Optional[str] = None,
-        model: str = "gpt-4o",
+        model: str = "MiniMax-M2.7",
     ):
         """初始化 Chain"""
         self.milvus_client = milvus_client or FAISSIChingClient()
         self.model = model
 
-        # 优先使用 DeepSeek API
-        deepseek_key = os.getenv("DEEPSEEK_API_KEY")
-        if deepseek_key and deepseek_key != "your_deepseek_api_key_here":
-            from openai import OpenAI
-            self.client = OpenAI(
-                api_key=deepseek_key,
-                base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-            )
-            self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        # 优先使用 MiniMax API
+        minimax_key = os.getenv("MINIMAX_API_KEY")
+        if minimax_key and minimax_key != "your_minimax_api_key_here":
+            self.client = anthropic.Anthropic(api_key=minimax_key)
             self._has_api_key = True
         else:
-            # 使用 OpenAI API
-            api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-            if api_key and api_key != "your_openai_api_key_here":
-                self.client = OpenAI(api_key=api_key)
-                self._has_api_key = True
-            else:
-                self.client = None
-                self._has_api_key = False
-                print("[WARNING] 未配置 API Key，将使用模拟模式")
+            self.client = None
+            self._has_api_key = False
+            print("[WARNING] 未配置 API Key，将使用模拟模式")
 
-    def _call_llm(self, messages: list[dict], temperature: float = 0.7) -> str:
+    def _call_llm(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 4096) -> str:
         """
-        调用大模型
+        调用大模型 (MiniMax-M2.7)
 
         Args:
             messages: 消息列表
             temperature: 温度参数
+            max_tokens: 最大输出token数
 
         Returns:
             模型输出文本
@@ -210,12 +199,36 @@ class IChingChain:
         if not self._has_api_key:
             return self._mock_fsm_response(messages)
 
-        response = self.client.chat.completions.create(
+        # 转换 messages 格式为 Anthropic format
+        # system 字段提取
+        system_content = ""
+        anthropic_messages = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_content = msg.get("content", "")
+            else:
+                anthropic_messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+
+        response = self.client.messages.create(
             model=self.model,
-            messages=messages,
+            max_tokens=max_tokens,
+            system=system_content,
+            messages=anthropic_messages,
             temperature=temperature,
         )
-        return response.choices[0].message.content
+
+        # 收集文本输出
+        text_output = ""
+        for block in response.content:
+            if block.type == "text":
+                text_output += block.text
+            elif block.type == "thinking":
+                # 可选：存储 thinking 输出
+                pass
+        return text_output
 
     def _mock_fsm_response(self, messages: list[dict]) -> str:
         """Mock LLM FSM response for testing"""
