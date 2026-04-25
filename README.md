@@ -279,34 +279,46 @@ Similarity = (V_query · V_db) / (|V_query| |V_db|)
 
 ## 九、技术架构
 
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                           前端 (React + Three.js)                         │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────────┐       │
-│  │  Hexagram3D │    │  OverlayUI   │    │      useStore.ts        │       │
-│  │  (3D卦象渲染)│    │  (水墨HUD)   │    │   (Zustand状态管理)     │       │
-│  └─────────────┘    └──────────────┘    └───────────┬─────────────┘       │
-└──────────────────────────────────────────────────┼───────────────────────┘
-                                                 │ /api/simulate, /api/evolve
-┌────────────────────────────────────────────────▼─────────────────────────┐
-│                          后端 (FastAPI + Python)                           │
-│  ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐       │
-│  │    /api/infer    │    │   /api/simulate  │    │   /api/evolve   │       │
-│  │  (LLM分析+硬算)  │    │   (6种Bit Flip)  │    │  (确定性演化)   │       │
-│  └────────┬─────────┘    └────────┬─────────┘    └───────┬─────────┘       │
-│           │                      │                      │                 │
-│  ┌────────▼──────────────────────▼──────────────────────▼─────────────┐   │
-│  │                  fsm_kernel.py (V11.0离散自动机内核)                │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │   │
-│  │  │ FSMState │  │ 离散差分   │  │ 三维应力  │  │ Conf_M1 + Monte  │  │   │
-│  │  │ (6位状态)│  │ 方程E/P   │  │ σ_p/e/t   │  │ Carlo扰动引擎   │  │   │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────────────┘  │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐       │
-│  │   llm/chain     │    │ db/faiss_client  │    │  models/schema  │       │
-│  │  (IChingChain)  │    │    (向量检索)     │    │   (Pydantic)    │       │
-│  └─────────────────┘    └──────────────────┘    └─────────────────┘       │
-└───────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Frontend["前端 (React + Three.js)"]
+        H[Hexagram3D<br/>3D卦象渲染]
+        O[OverlayUI<br/>水墨HUD]
+        S[useStore.ts<br/>Zustand状态管理]
+    end
+
+    H & O --> S
+
+    S -->|HTTP /api/simulate<br/>       /api/evolve| API[后端 API 层<br/>FastAPI Python]
+
+    subgraph Backend["后端 (FastAPI + Python)"]
+        API -->|/api/infer| Infer[LLM分析<br/>+ V11.0硬算]
+        API -->|/api/simulate| Sim[6种Bit Flip<br/>预览]
+        API -->|/api/evolve| Evolve[确定性<br/>演化]
+
+        Infer & Sim & Evolve --> K[fsm_kernel.py<br/>V11.0离散自动机内核]
+
+        subgraph Kernel["fsm_kernel.py 核心模块"]
+            FS[FSMState<br/>6位状态]
+            DE[离散差分方程<br/>E_i/P_i]
+            ST[三维应力<br/>σ_p/e/t]
+            MC[Conf_M1<br/>Monte Carlo扰动引擎]
+        end
+
+        FS & DE & ST & MC --> K
+
+        K --> LL[llm/chain<br/>IChingChain]
+        K --> DB[db/faiss_client<br/>向量检索]
+        K --> SC[models/schema<br/>Pydantic]
+    end
+
+    classDef frontend fill:#f4f4f0,stroke:#333,stroke-width:2px
+    classDef backend fill:#fff,stroke:#333,stroke-width:2px
+    classDef kernel fill:#ffe4e4,stroke:#b91c1c,stroke-width:2px
+
+    class H,O,S frontend
+    class API,Infer,Sim,Evolve,LL,DB,SC backend
+    class FS,DE,ST,MC kernel
 ```
 
 ---
