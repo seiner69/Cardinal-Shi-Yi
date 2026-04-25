@@ -97,6 +97,27 @@ export interface InferResponse {
   retrieval_results: RetrievalResult[]
 }
 
+// SSOT Node Info from /api/node
+export interface NodeInfo {
+  bits: string
+  E: number[]
+  P: number[]
+  tau: number[]
+  R: number[]
+  conf_m1: number
+}
+
+// SSOT Simulation state
+export interface SSOTSimulation {
+  currentBits: string
+  nextBits: string | null
+  transitionBit: number | null
+  evolutionPath: number
+  evolutionPathName: string
+  entropyS: number
+  confM1: number
+}
+
 interface StoreState {
   isLoading: boolean
   query: string
@@ -104,9 +125,17 @@ interface StoreState {
   retrievalResults: RetrievalResult[]
   deterministic: DeterministicResult | null
   simulateFlips: SimulateFlip[]
+  // SSOT simulation state
+  nodeInfo: NodeInfo | null
+  ssotSimulation: SSOTSimulation | null
+  typewriterLogs: string[]
+  isSimulating: boolean
+  // Actions
   fetchInfer: (query: string) => Promise<void>
   simulateFlip: (bits: string) => Promise<SimulateFlip[]>
   evolve: (bits: string, path?: number) => Promise<EvolveResponse>
+  fetchNodeInfo: (bits: string) => Promise<void>
+  addTypewriterLog: (msg: string) => void
   setQuery: (query: string) => void
   reset: () => void
 }
@@ -120,6 +149,11 @@ export const useStore = create<StoreState>((set) => ({
   retrievalResults: [],
   deterministic: null,
   simulateFlips: [],
+  // SSOT
+  nodeInfo: null,
+  ssotSimulation: null,
+  typewriterLogs: [],
+  isSimulating: false,
 
   fetchInfer: async (query: string) => {
     set({ isLoading: true })
@@ -162,6 +196,37 @@ export const useStore = create<StoreState>((set) => ({
     }
   },
 
+  fetchNodeInfo: async (bits: string) => {
+    try {
+      const { data } = await axios.get<{
+        bits: string
+        E: number[]
+        P: number[]
+        tau: number[]
+        R: number[]
+        conf_m1: number
+      }>('/api/node', { params: { bits } })
+      set({
+        nodeInfo: {
+          bits: data.bits,
+          E: data.E,
+          P: data.P,
+          tau: data.tau,
+          R: data.R,
+          conf_m1: data.conf_m1,
+        },
+      })
+    } catch (err) {
+      console.error('node error:', err)
+    }
+  },
+
+  addTypewriterLog: (msg: string) => {
+    set(state => ({
+      typewriterLogs: [...state.typewriterLogs, msg],
+    }))
+  },
+
   setQuery: (query: string) => set({ query }),
 
   reset: () => set({
@@ -171,5 +236,9 @@ export const useStore = create<StoreState>((set) => ({
     retrievalResults: [],
     deterministic: null,
     simulateFlips: [],
+    nodeInfo: null,
+    ssotSimulation: null,
+    typewriterLogs: [],
+    isSimulating: false,
   }),
 }))

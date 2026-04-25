@@ -1,6 +1,6 @@
 # 史易枢机 — 6-Bit FSM 拓扑引擎
 
-> V11.0 离散自动机版 — 从 0 到 1 的"社会/商业/人生物理学模拟器"
+> V11.1 前端SSOT物理仿真控制台版 — 前后端分离的三栏实时监控系统
 
 本系统从《周易》三千年历史玄学中执行了一次彻底的**认识论决裂**：
 仅提取其最核心的数学结构——6层二值拓扑网络，
@@ -277,7 +277,67 @@ Similarity = (V_query · V_db) / (|V_query| |V_db|)
 
 ---
 
-## 九、技术架构
+## 九、前端架构：三栏SSOT物理仿真控制台
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      SEMANTIC TERMINAL / 语义终端                    │
+├───────────────┬─────────────────────────────┬───────────────────────┤
+│ LEFT CONSOLE  │      CENTER OUTPUT         │    RIGHT CONSOLE      │
+│ (左控制台)     │      (中央输出)             │    (右信息台)          │
+│               │                             │                       │
+│ 6× LayerInputCard                           │  ConfidenceGauge     │
+│  · B1-PHYS   │  BitProgressBar × 6         │  (SVG迈速表)          │
+│  · B2-CONDO  │  ΔMDisplay (红闪动爻)       │                       │
+│  · B3-CORE   │  PredictionMatrix            │  MonteCarloChart      │
+│  · B4-INFACE │  EvolutionPath               │  (均值±σ分布)         │
+│  · B5-RULES  │  AllFlips Preview           │                       │
+│  · B6-MACRO  │                             │  T(e,p,t) Tensor     │
+│               │                             │  TypewriterLog       │
+│ [EXECUTE]     │                             │  PhysicsDesc         │
+└───────────────┴─────────────────────────────┴───────────────────────┘
+                        BOTTOM CONSOLE (LLM查询 + LegacyPanel)
+```
+
+### 组件清单
+
+| 文件 | 作用 | 调用API |
+|------|------|---------|
+| `LayerInputCard.tsx` | 单层折叠卡片：BooleanSwitch + E/P/R/τ/U展示 | `/api/node` |
+| `LeftConsole.tsx` | 6 × LayerInputCard + EXECUTE SIMULATION | `/api/simulate`, `/api/node` |
+| `CenterOutput.tsx` | 每层进度条 + ΔM红闪 + Prediction Matrix | 解析 flips[] |
+| `RightConsole.tsx` | 置信度仪表 + MC柱图 + 打字机日志 | `/api/node` conf_m1 |
+| `ConfidenceGauge.tsx` | SVG迈速表（0-1，红区<0.8） | conf_m1 值 |
+| `MonteCarloChart.tsx` | 均值±标准差展示（前端模拟N=200采样） | conf_m1 推导 |
+| `TypewriterLog.tsx` | 逐字打字机动画 | deterministic 结果 |
+| `BitProgressBar.tsx` | 单层能量/压强进度条 | /api/node E[i], P[i] |
+| `DeltaMDisplay.tsx` | ΔM 张量 + 红闪高亮 | deterministic.max_stress_bit |
+| `OverlayUI.tsx` | 三栏布局组合器 | — |
+| `Hexagram3D.tsx` | Three.js 3D卦象渲染 | — |
+
+### Store扩展（useStore.ts）
+
+```typescript
+// SSOT后端状态
+interface NodeInfo {
+  bits: string; E: number[]; P: number[]; tau: number[]; R: number[]; conf_m1: number
+}
+
+// 新增状态
+nodeInfo: NodeInfo | null
+typewriterLogs: string[]
+isSimulating: boolean
+```
+
+### 设计原则
+
+- **SSOT（单一事实来源）**：所有物理参数以后端API为准，前端只做展示和交互触发
+- **后端不动前端适配**：不修改后端，只调整前端适配现有API
+- **端口配置**：前端DevServer代理 `/api` → `http://127.0.0.1:8001`
+
+---
+
+## 十、技术架构
 
 ```mermaid
 flowchart TB
@@ -323,7 +383,7 @@ flowchart TB
 
 ---
 
-## 十、快速开始
+## 十一、快速开始
 
 ### 启动后端
 
@@ -336,7 +396,7 @@ cp .env.example .env
 # 编辑 .env 填入 DEEPSEEK_API_KEY
 
 # 启动 API 服务
-uvicorn src.api:app --reload --port 8000
+uvicorn src.api:app --reload --port 8001
 ```
 
 ### 启动前端
@@ -355,9 +415,22 @@ npm run dev
 
 ---
 
-## 十一、版本历史
+## 十二、版本历史
 
-### V11.0 — 离散自动机可证伪版（当前版本）
+### V11.1 — 前端SSOT物理仿真控制台（当前版本）
+
+前端完全重构为**三栏SSOT物理仿真控制台**：
+
+- 新增LeftConsole：6层折叠卡片 + BooleanSwitch翻转触发
+- 新增CenterOutput：BitProgressBar进度条 + ΔMDisplay红闪动爻
+- 新增RightConsole：ConfidenceGauge + MonteCarloChart + TypewriterLog
+- 重构OverlayUI为三栏布局，BottomConsole保留LLM查询
+- 修复React Hooks违规（useEffect顺序错误）
+- 修复TypeScript build错误（unused变量）
+- Vite代理端口从8000更新为8001
+- Store扩展：NodeInfo、typewriterLogs、isSimulating
+
+### V11.0 — 离散自动机可证伪版
 
 全面升级至**离散差分方程**架构：
 
@@ -379,7 +452,7 @@ npm run dev
 
 ---
 
-## 十二、核心文件说明
+## 十三、核心文件说明
 
 | 文件 | 作用 |
 |------|------|
@@ -387,9 +460,17 @@ npm run dev
 | `src/api.py` | FastAPI路由：/api/infer、/api/simulate、/api/evolve、/api/node |
 | `src/models/schema.py` | Pydantic模型：FSMOutput、DeterministicResult、FSMNode |
 | `src/llm/chain.py` | LLM链路：IChingChain.run() + 向量检索叠加确定性硬算 |
-| `web3d-frontend/src/store/useStore.ts` | Zustand状态管理：fetchInfer、simulateFlip、evolve |
-| `web3d-frontend/src/components/OverlayUI.tsx` | 水墨风HUD：卦象信息、变爻预览、确定性内核面板 |
+| `web3d-frontend/src/store/useStore.ts` | Zustand状态管理：fetchInfer、simulateFlip、evolve、fetchNodeInfo |
+| `web3d-frontend/src/components/OverlayUI.tsx` | 水墨风HUD三栏布局：LeftConsole + CenterOutput + RightConsole |
 | `web3d-frontend/src/components/Hexagram3D.tsx` | Three.js 3D卦象渲染：贝塞尔曲线毛笔爻 |
+| `web3d-frontend/src/components/LeftConsole.tsx` | 左侧6层输入卡片 + EXECUTE按钮 |
+| `web3d-frontend/src/components/CenterOutput.tsx` | 中央进度条 + ΔM红闪 + 演化路径 |
+| `web3d-frontend/src/components/RightConsole.tsx` | 右侧置信度仪表 + MC分布 + 张量 + 打字机日志 |
+| `web3d-frontend/src/components/ConfidenceGauge.tsx` | SVG迈速表（0-1，红区<0.8警告） |
+| `web3d-frontend/src/components/MonteCarloChart.tsx` | 蒙特卡洛均值±σ柱图 |
+| `web3d-frontend/src/components/TypewriterLog.tsx` | 打字机逐字动画日志 |
+| `web3d-frontend/src/components/BitProgressBar.tsx` | 单层能量/压强进度条 |
+| `web3d-frontend/src/components/LayerInputCard.tsx` | 单层折叠卡片（BooleanSwitch + E/P/R/τ） |
 
 ---
 
