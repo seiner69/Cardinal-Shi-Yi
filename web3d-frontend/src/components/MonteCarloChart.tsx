@@ -1,126 +1,81 @@
 import { useMemo } from 'react'
+import type { MonteCarloOutcome } from '../store/useStore'
 
 interface MonteCarloChartProps {
-  confM1: number      // 0-1, system confidence
+  confM1: number
+  outcomes?: MonteCarloOutcome[]
 }
 
-export function MonteCarloChart({ confM1 }: MonteCarloChartProps) {
-  // Build a synthetic histogram from confM1
-  // Low confM1 = wide distribution, high confM1 = narrow
+function seededRandom(seed: number) {
+  const x = Math.sin(seed) * 10000
+  return x - Math.floor(x)
+}
+
+export function MonteCarloChart({ confM1, outcomes = [] }: MonteCarloChartProps) {
   const buckets = useMemo(() => {
     const numBuckets = 12
     const uncertainty = 1 - confM1
+    const mean = 0.3 + uncertainty * 0.4
+    const std = 0.1 + uncertainty * 0.25
+    const counts = new Array<number>(numBuckets).fill(0)
 
-    // Mean of distribution shifts with uncertainty
-    const mean = 0.3 + uncertainty * 0.4  // 0.3 (low stress) to 0.7 (high stress)
-    const std = 0.1 + uncertainty * 0.25  // 0.1 (tight) to 0.35 (wide spread)
-
-    const counts = new Array(numBuckets).fill(0)
-    const range = [0, 1]
-
-    // Monte Carlo sampling (simplified Gaussian approximation)
-    const N = 200
-    for (let s = 0; s < N; s++) {
-      // Box-Muller approximation
-      const u1 = Math.random()
-      const u2 = Math.random()
+    for (let s = 0; s < 200; s += 1) {
+      const seedBase = Math.round(confM1 * 10000) + s * 2
+      const u1 = seededRandom(seedBase + 1)
+      const u2 = seededRandom(seedBase + 2)
       const z = Math.sqrt(-2 * Math.log(u1 + 1e-10)) * Math.cos(2 * Math.PI * u2)
-      const sample = Math.max(range[0], Math.min(range[1], mean + z * std))
-
-      const bucketIdx = Math.min(
-        numBuckets - 1,
-        Math.floor((sample - range[0]) / (range[1] - range[0]) * numBuckets)
-      )
-      counts[bucketIdx]++
+      const sample = Math.max(0, Math.min(1, mean + z * std))
+      counts[Math.min(numBuckets - 1, Math.floor(sample * numBuckets))] += 1
     }
 
     const maxCount = Math.max(...counts)
-    return counts.map((c, i) => ({
-      height: maxCount > 0 ? (c / maxCount) * 100 : 0,
-      label: i === 0 || i === numBuckets - 1 ? (i === 0 ? 'LO' : 'HI') : '',
-    }))
+    return counts.map(count => (maxCount > 0 ? (count / maxCount) * 100 : 0))
   }, [confM1])
-
-  // Mean and std markers as percentage positions
-  const meanPos = useMemo(() => {
-    const uncertainty = 1 - confM1
-    const mean = 0.3 + uncertainty * 0.4
-    return mean * 100
-  }, [confM1])
-
-  const stdLeft = Math.max(0, meanPos - 15)
-  const stdRight = Math.min(100, meanPos + 15)
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="font-mono text-[8px] text-gray-400 uppercase tracking-widest">
-        MONTE CARLO · N=1000
+      <div className="panel-title">
+        蒙特卡洛 / 主要后继状态
       </div>
 
-      {/* Bar chart */}
-      <div className="relative h-16 bg-gray-100/30 border border-gray-200/30">
-        {/* Bars */}
-        <div className="absolute inset-0 flex items-end px-1 gap-[2px]">
-          {buckets.map((b, i) => (
-            <div
-              key={i}
-              className="flex-1 bg-gray-400/60 transition-all duration-300"
-              style={{ height: `${Math.max(2, b.height)}%` }}
-            />
+      {outcomes.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {outcomes.map((outcome) => (
+            <div key={outcome.bits} className="grid grid-cols-[64px_1fr_42px] items-center gap-2">
+              <span className="font-mono text-[8px] text-[#4f5d6a]">{outcome.bits}</span>
+              <div className="h-2 overflow-hidden rounded bg-[#e6dfd4]/70">
+                <div
+                  className="h-full bg-[#0f766e]/70"
+                  style={{ width: `${Math.max(2, outcome.probability * 100)}%` }}
+                />
+              </div>
+              <span className="text-right font-mono text-[8px] text-[#6b6259]">
+                {(outcome.probability * 100).toFixed(0)}%
+              </span>
+            </div>
           ))}
         </div>
-
-        {/* Mean line */}
-        <div
-          className="absolute top-0 bottom-0 w-px bg-[#9f1239]"
-          style={{ left: `${meanPos}%` }}
-        />
-        <div
-          className="absolute -top-1 font-mono text-[6px] text-[#9f1239]"
-          style={{ left: `${meanPos}%`, transform: 'translateX(-50%)' }}
-        >
-          μ
+      ) : (
+        <div className="relative h-16 overflow-hidden rounded-md border border-[#524639]/10 bg-white/40">
+          <div className="absolute inset-0 flex items-end px-1 gap-[2px]">
+            {buckets.map((height, index) => (
+              <div
+                key={index}
+                className="flex-1 bg-[#6b6259]/50 transition-all duration-300"
+                style={{ height: `${Math.max(2, height)}%` }}
+              />
+            ))}
+          </div>
         </div>
+      )}
 
-        {/* Std range */}
-        <div
-          className="absolute top-0 bottom-0 bg-[#9f1239]/10"
-          style={{ left: `${stdLeft}%`, width: `${stdRight - stdLeft}%` }}
-        />
-        <div
-          className="absolute -top-1 font-mono text-[6px] text-gray-400"
-          style={{ left: `${stdLeft}%`, transform: 'translateX(-50%)' }}
-        >
-          -
-        </div>
-        <div
-          className="absolute -top-1 font-mono text-[6px] text-gray-400"
-          style={{ left: `${stdRight}%`, transform: 'translateX(-50%)' }}
-        >
-          +
-        </div>
-      </div>
-
-      {/* Legend */}
       <div className="flex items-center justify-between px-1">
-        <span className="font-mono text-[7px] text-gray-400">
-          conf_m1: <span className={confM1 < 0.8 ? 'text-[#9f1239]' : 'text-gray-600'}>{confM1.toFixed(2)}</span>
+        <span className="font-mono text-[7px] text-[#8a8177]">
+          置信: <span className={confM1 < 0.8 ? 'text-[#9f1239]' : 'text-[#26323f]'}>{confM1.toFixed(2)}</span>
         </span>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0.5">
-            <div className="w-2 h-1 bg-[#9f1239]/10" />
-            <span className="font-mono text-[7px] text-gray-400">±σ</span>
-          </div>
-          <div className="flex items-center gap-0.5">
-            <div className="w-px h-2 bg-[#9f1239]" />
-            <span className="font-mono text-[7px] text-gray-400">μ</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Distribution label */}
-      <div className="font-mono text-[7px] text-gray-500 text-center">
-        {confM1 >= 0.8 ? 'DETERMINISTIC' : confM1 >= 0.5 ? 'PROBABILISTIC' : 'HIGH UNCERTAINTY'}
+        <span className="font-mono text-[7px] text-[#8a8177]">
+          {outcomes.length > 0 ? `${outcomes.length} 个结果` : '预览分布'}
+        </span>
       </div>
     </div>
   )

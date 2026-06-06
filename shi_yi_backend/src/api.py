@@ -12,7 +12,7 @@ import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from typing import Optional
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -35,6 +35,7 @@ from src.fsm_kernel import (
     path4_meta_reset_or_invert,
     conf_m1,
     compute_system_confidence,
+    physics_snapshot,
     MONTE_CARLO_N,
 )
 from src.llm.chain import IChingChain
@@ -57,6 +58,33 @@ class EvolveRequest(BaseModel):
     delta_E_ext: float = Field(default=0.0, description="外部能量注入率")
     deadlock_flag: bool = Field(default=False, description="死锁标志位")
     time_in_state: int = Field(default=0, description="在当前状态的停留时间")
+
+
+class InferRequest(BaseModel):
+    query: str = Field(..., description="分析查询")
+
+
+class PhysicsUncertainty(BaseModel):
+    U_E: float = Field(default=0.0, ge=0.0, le=1.0, description="Energy measurement uncertainty")
+    U_P: float = Field(default=0.0, ge=0.0, le=1.0, description="Pressure measurement uncertainty")
+    U_R: float = Field(default=0.0, ge=0.0, le=1.0, description="Dissipation measurement uncertainty")
+    U_tau: float = Field(default=0.0, ge=0.0, le=1.0, description="Yield threshold measurement uncertainty")
+
+
+class PhysicsRequest(BaseModel):
+    bits: str = Field(..., description="6-bit state, e.g. '111000'")
+    E: list[float] = Field(..., description="Current fuel/energy per layer")
+    P: list[float] = Field(..., description="Current pressure per layer")
+    R: list[float] = Field(..., description="Dissipation rate per layer")
+    tau: list[float] = Field(..., description="Yield threshold per layer")
+    C: Optional[list[float]] = Field(default=None, description="Pressure accumulation rate per layer")
+    E_initial: Optional[list[float]] = Field(default=None, description="Initial fuel/energy per layer")
+    R_base: Optional[list[float]] = Field(default=None, description="Baseline dissipation per layer")
+    U: Optional[PhysicsUncertainty] = Field(default=None, description="Input uncertainty")
+    delta_E_ext: float = Field(default=0.0, description="External energy injection for route selection")
+    deadlock_flag: bool = Field(default=False, description="Whether the system is in absolute deadlock")
+    time_in_state: int = Field(default=0, ge=0, description="Ticks spent in current state")
+    monte_carlo_N: int = Field(default=MONTE_CARLO_N, ge=1, le=10000)
 
 
 # =============================================================================
@@ -208,6 +236,101 @@ def build_deterministic_result(state: FSMState,
     )
 
 
+def clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def build_physics_seed(fsm_result: FSMOutput, query: str) -> dict:
+    """
+    Build a conservative raw-physics estimate from semantic analysis.
+
+    This is not measurement truth. It gives the frontend a coherent starting
+    point so /api/physics can run the real ADC/TTL/tensor pipeline immediately.
+    """
+    bits = (fsm_result.inner_bits or "000") + (fsm_result.outer_bits or "000")
+    if len(bits) != 6 or any(c not in "01" for c in bits):
+        bits = "000000"
+
+    E = []
+    P = []
+    R = []
+    tau = [1.0] * 6
+    C = []
+    E_initial = [1.0] * 6
+    R_base = [0.1] * 6
+
+    pressure_terms = ("压", "债", "KPI", "监管", "冲突", "阻力", "危机", "堵", "闭塞", "过载", "挤压", "爆")
+    depletion_terms = ("耗", "亏空", "枯竭", "干涸", "断供", "透支", "衰退", "崩", "断裂", "燃料")
+    support_terms = ("现金", "粮", "资源", "支撑", "储备", "资本", "兵", "算力", "财政")
+
+    bit_text = {item.bit_position: item.description for item in fsm_result.bit_analysis}
+    stress_text = f"{fsm_result.stress_analysis.stress_type} {fsm_result.stress_analysis.analysis}"
+    deadlock_text = f"{query} {stress_text} {fsm_result.mutation_suggestion}"
+    focus_bit = fsm_result.energy_focus.focus_bit
+
+    for bit_index, char in enumerate(bits, start=1):
+        is_active = char == "1"
+        text = f"{query} {bit_text.get(bit_index, '')}"
+
+        energy = 0.74 if is_active else 0.9
+        pressure = 0.18 if is_active else 0.32
+        dissipation = 0.11 if is_active else 0.08
+        compression = 0.15
+
+        pressure_hits = sum(1 for term in pressure_terms if term in text)
+        depletion_hits = sum(1 for term in depletion_terms if term in text)
+        support_hits = sum(1 for term in support_terms if term in text)
+
+        pressure += 0.08 * pressure_hits
+        compression += 0.015 * pressure_hits
+        energy -= 0.1 * depletion_hits
+        dissipation += 0.025 * depletion_hits
+        energy += 0.04 * support_hits
+
+        if bit_index == focus_bit:
+            if any(term in stress_text for term in ("断裂", "燃料", "耗尽", "坍塌")):
+                energy = min(energy, 0.22)
+                dissipation = max(dissipation, 0.17)
+            elif any(term in stress_text for term in ("撞墙", "压强", "爆破", "挤压")):
+                pressure = max(pressure, 0.86)
+                compression = max(compression, 0.2)
+            else:
+                energy = min(energy, 0.55)
+                pressure = max(pressure, 0.5)
+
+        E.append(round(clamp(energy, 0.05, 1.0), 3))
+        P.append(round(clamp(pressure, 0.0, 0.98), 3))
+        R.append(round(clamp(dissipation, 0.02, 0.25), 3))
+        C.append(round(clamp(compression, 0.05, 0.3), 3))
+
+    uncertainty = 0.22
+    if not fsm_result.bit_analysis:
+        uncertainty = 0.35
+    if not fsm_result.inner_system and not fsm_result.outer_system:
+        uncertainty = max(uncertainty, 0.42)
+
+    return {
+        "bits": bits,
+        "E": E,
+        "P": P,
+        "R": R,
+        "tau": tau,
+        "C": C,
+        "E_initial": E_initial,
+        "R_base": R_base,
+        "U": {
+            "U_E": uncertainty,
+            "U_P": uncertainty,
+            "U_R": min(0.5, uncertainty + 0.05),
+            "U_tau": min(0.5, uncertainty + 0.08),
+        },
+        "delta_E_ext": 0.0,
+        "deadlock_flag": any(term in deadlock_text for term in ("死锁", "闭塞", "僵化", "通道全部闭塞")),
+        "time_in_state": 0,
+        "monte_carlo_N": MONTE_CARLO_N,
+    }
+
+
 # =============================================================================
 # API 路由
 # =============================================================================
@@ -218,7 +341,7 @@ def root():
 
 
 @app.post("/api/infer")
-def infer(query: str):
+def infer(body: InferRequest):
     """
     LLM 分析 + V11.0 确定性硬算叠加
 
@@ -230,7 +353,7 @@ def infer(query: str):
     chain = IChingChain()
 
     # 运行 LLM 链路
-    fsm_result, retrieval = chain.run(query)
+    fsm_result, retrieval = chain.run(body.query)
 
     # 从 LLM 结果中提取 bits，构建 V2.0 硬算
     try:
@@ -247,10 +370,44 @@ def infer(query: str):
         # 容错：LLM 结果无法解析时跳过 V2.0
         pass
 
+    physics_seed = build_physics_seed(fsm_result, body.query)
+
     return {
         "fsm_analysis": fsm_result.model_dump(mode="json"),
         "retrieval_results": retrieval,
+        "physics_seed": physics_seed,
     }
+
+
+@app.post("/api/physics")
+def physics(body: PhysicsRequest):
+    """
+    Physics-first SSOT pipeline:
+    raw layer inputs -> ADC phases/TTL -> hard interrupt -> tensor -> MC distribution.
+    """
+    try:
+        state = FSMState.from_physics(
+            bits=body.bits,
+            E=body.E,
+            P=body.P,
+            R=body.R,
+            tau=body.tau,
+            C=body.C,
+            E_initial=body.E_initial,
+            R_base=body.R_base,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    U = body.U.model_dump() if body.U else None
+    return physics_snapshot(
+        state,
+        U=U,
+        mc_N=body.monte_carlo_N,
+        delta_E_ext=body.delta_E_ext,
+        deadlock_flag=body.deadlock_flag,
+        time_in_state=body.time_in_state,
+    )
 
 
 @app.get("/api/simulate")
@@ -260,8 +417,8 @@ def simulate(bits: str, E0: float = 1.0, P0: float = 0.0):
     """
     try:
         state = FSMState.from_bits(bits, E0=E0, P0=P0)
-    except Exception:
-        return {"error": f"Invalid bits: {bits}, must be 6 characters of 0/1"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     flips = simulate_all_flips(state)
     hex_index, physics_name, physics_desc = get_hex_state(state)
@@ -312,8 +469,8 @@ def evolve(bits: str,
     """
     try:
         state = FSMState.from_bits(bits)
-    except Exception:
-        return {"error": f"Invalid bits: {bits}"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     current_node = state_to_fsm_node(state)
 
@@ -371,7 +528,7 @@ def evolve(bits: str,
             "operations": result,
         }
 
-    return {"error": f"Unknown path: {path}, must be 1/2/3/4"}
+    raise HTTPException(status_code=400, detail=f"Unknown path: {path}, must be 1/2/3/4")
 
 
 @app.get("/api/node")
@@ -379,8 +536,8 @@ def node(bits: str):
     """查询当前节点信息"""
     try:
         state = FSMState.from_bits(bits)
-    except Exception:
-        return {"error": f"Invalid bits: {bits}"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     hex_index, physics_name, physics_desc = get_hex_state(state)
     hexagram = get_hexagram_name(state.inner_bits(), state.outer_bits())
@@ -401,5 +558,6 @@ def node(bits: str):
         "R": state.R,
         "R_base": state.R_base,
         "P": state.P,
+        "tau": state.tau,
         "conf_m1": conf_m1(state),
     }

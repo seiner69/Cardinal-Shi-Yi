@@ -107,7 +107,9 @@ FSM_SYSTEM_PROMPT = """## Role: 6-Bit 状态机 (FSM) 拓扑分析引擎
 
 **Step 2: 提取 6-Bit 机器码 (Extract State)**
 
-- 无情评估 6 个层级的资源与压强。对 Bit 1 到 Bit 6 进行 `0` 或 `1` 的赋值，并**必须附带一句话的事实依据**。得出初始 6-Bit 代码（如 `100|010`）。
+- 无情评估 6 个层级的资源与压强。对 Bit 1 到 Bit 6 进行 `0` 或 `1` 的赋值，并**必须附带一句话的事实依据**。
+- JSON 输出必须拆成 `inner_bits` 与 `outer_bits`：`inner_bits=B1B2B3`，`outer_bits=B4B5B6`。后端计算码为 `inner_bits + outer_bits`，即从物理底座到宏观天花板的 `B1→B6`。
+- 如果需要和原理层 Markdown 的卦码对照，原理层显示码通常是 `B6B5B4|B3B2B1`；不要把这个显示码直接写进 JSON 字段。
 
 **Step 3: 定位执行指针 (Locate Energy Focus)**
 
@@ -162,8 +164,8 @@ FSM_SYSTEM_PROMPT = """## Role: 6-Bit 状态机 (FSM) 拓扑分析引擎
 {
   "inner_system": "内系统定义（分析目标自身）",
   "outer_system": "外系统定义（目标所处的宏观环境）",
-  "inner_bits": "内系统3位代码，如 '100'",
-  "outer_bits": "外系统3位代码，如 '010'",
+  "inner_bits": "内系统3位代码 B1B2B3，如 '100'",
+  "outer_bits": "外系统3位代码 B4B5B6，如 '010'",
   "bit_analysis": [
     {"bit_position": 1, "value": "1", "description": "Bit1的事实依据"},
     {"bit_position": 2, "value": "0", "description": "Bit2的事实依据"},
@@ -300,7 +302,7 @@ def get_system_prompt(
     Returns:
         填充后的完整 Prompt
     """
-    prompt = SYSTEM_PROMPT
+    prompt = FSM_SYSTEM_PROMPT
 
     if history_context:
         prompt = prompt.replace(

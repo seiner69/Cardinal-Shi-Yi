@@ -17,7 +17,16 @@ const YIN_OFFSET_X = (YIN_GAP / 2) + (YIN_SEGMENT_LENGTH / 2)
 // Procedural Ink Texture (Canvas-generated)
 // =============================================================================
 
+function seededRandom(seed: number) {
+  let nextSeed = seed
+  return () => {
+    nextSeed = (nextSeed * 1664525 + 1013904223) % 4294967296
+    return nextSeed / 4294967296
+  }
+}
+
 function createInkTexture(dark: boolean): CanvasTexture {
+  const random = seededRandom(dark ? 911 : 353)
   const canvas = document.createElement('canvas')
   canvas.width = 256
   canvas.height = 256
@@ -49,10 +58,10 @@ function createInkTexture(dark: boolean): CanvasTexture {
   // 飞白纹理
   ctx.globalCompositeOperation = 'destination-out'
   for (let i = 0; i < 120; i++) {
-    const x = Math.random() * 256
-    const y = Math.random() * 256
-    const r = Math.random() * 4 + 0.5
-    const alpha = Math.random() * 0.35
+    const x = random() * 256
+    const y = random() * 256
+    const r = random() * 4 + 0.5
+    const alpha = random() * 0.35
     ctx.fillStyle = `rgba(255,255,255,${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
@@ -61,11 +70,11 @@ function createInkTexture(dark: boolean): CanvasTexture {
 
   // 墨点细节
   for (let i = 0; i < 30; i++) {
-    const x = Math.random() * 256
-    const y = Math.random() * 256
+    const x = random() * 256
+    const y = random() * 256
     ctx.fillStyle = 'rgba(255,255,255,0.05)'
     ctx.beginPath()
-    ctx.ellipse(x, y, Math.random() * 10 + 2, Math.random() * 3 + 1, Math.random() * Math.PI, 0, Math.PI * 2)
+    ctx.ellipse(x, y, random() * 10 + 2, random() * 3 + 1, random() * Math.PI, 0, Math.PI * 2)
     ctx.fill()
   }
 

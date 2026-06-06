@@ -1,6 +1,5 @@
 @import "tailwindcss";
 
-/* Google Fonts: 楷体 + 宋体 */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=Ma+Shan+Zheng&display=swap');
 
 @layer base {
@@ -14,9 +13,10 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    /* 古宣纸白底 */
-    background-color: #f4f4f0;
+    color: #1f2933;
+    background-color: #f5f3ee;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    font-family: "Noto Serif SC", ui-serif, Georgia, serif;
   }
 
   #root {
@@ -24,19 +24,74 @@
     height: 100%;
   }
 
-  /* 水墨卷轴滚动条 */
   ::-webkit-scrollbar {
-    width: 3px;
-    height: 3px;
+    width: 6px;
+    height: 6px;
   }
+
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+
   ::-webkit-scrollbar-thumb {
-    background: rgba(80, 70, 60, 0.25);
-    border-radius: 2px;
+    background: rgba(82, 70, 57, 0.24);
+    border-radius: 4px;
   }
+
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(80, 70, 60, 0.4);
+    background: rgba(82, 70, 57, 0.42);
+  }
+}
+
+@layer components {
+  .glass-panel {
+    border: 1px solid rgba(82, 70, 57, 0.16);
+    border-radius: 8px;
+    background: rgba(255, 252, 246, 0.68);
+    box-shadow: 0 16px 44px rgba(43, 39, 34, 0.10);
+    backdrop-filter: blur(18px);
+  }
+
+  .panel-title {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 9px;
+    line-height: 1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(82, 70, 57, 0.56);
+  }
+
+  .field-input {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid rgba(82, 70, 57, 0.15);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.72);
+    color: #26323f;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+  }
+
+  .field-input:focus {
+    border-color: rgba(159, 18, 57, 0.46);
+    box-shadow: 0 0 0 3px rgba(159, 18, 57, 0.08);
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .action-button {
+    border-radius: 6px;
+    background: #9f1239;
+    color: white;
+    transition: background 160ms ease, transform 160ms ease, opacity 160ms ease;
+  }
+
+  .action-button:hover:not(:disabled) {
+    background: #841130;
+    transform: translateY(-1px);
+  }
+
+  .action-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.36;
   }
 }

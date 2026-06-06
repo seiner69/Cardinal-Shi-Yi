@@ -3,3 +3,9 @@ __pycache__/
 .pytest_cache/
 node_modules/
 .env
+.claude/
+run_logs/
+**/run_logs/
+shi_yi_backend/chroma_db/
+shi_yi_backend/faiss_db/
+web3d-frontend/dist/

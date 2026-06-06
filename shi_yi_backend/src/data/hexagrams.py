@@ -709,3 +709,7 @@ HEXAGRAM_DATA = {
         "wen_yan": "",
     },
 }
+
+# 原理层使用通行简写“遁”，古文数据保留异体“遯”；两者指向同一卦。
+if "遯" in HEXAGRAM_DATA and "遁" not in HEXAGRAM_DATA:
+    HEXAGRAM_DATA["遁"] = HEXAGRAM_DATA["遯"]

@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any
 
 # =============================================================================
 # 常量与查找表
@@ -31,32 +31,32 @@ from typing import Optional
 
 TRIGRAM_MAP = {
     "000": {"name": "坤", "symbol": "☷"},
-    "001": {"name": "震", "symbol": "☳"},
+    "001": {"name": "艮", "symbol": "☶"},
     "010": {"name": "坎", "symbol": "☵"},
-    "011": {"name": "兑", "symbol": "☱"},
-    "100": {"name": "巽", "symbol": "☴"},
+    "011": {"name": "巽", "symbol": "☴"},
+    "100": {"name": "震", "symbol": "☳"},
     "101": {"name": "离", "symbol": "☲"},
-    "110": {"name": "艮", "symbol": "☶"},
+    "110": {"name": "兑", "symbol": "☱"},
     "111": {"name": "乾", "symbol": "☰"},
 }
 
 HEXAGRAM_LOOKUP = {
-    "乾乾": "乾", "乾坤": "否", "乾震": "无妄", "乾坎": "讼", "乾艮": "遯",
+    "乾乾": "乾", "乾坤": "否", "乾震": "无妄", "乾坎": "讼", "乾艮": "遁",
     "乾巽": "姤", "乾离": "同人", "乾兑": "履",
-    "坤乾": "泰", "坤坤": "坤", "坤震": "豫", "坤坎": "师", "坤艮": "谦",
+    "坤乾": "泰", "坤坤": "坤", "坤震": "复", "坤坎": "师", "坤艮": "谦",
     "坤巽": "升", "坤离": "明夷", "坤兑": "临",
-    "震乾": "大壮", "震坤": "复", "震震": "震", "震坎": "解", "震艮": "小过",
+    "震乾": "大壮", "震坤": "豫", "震震": "震", "震坎": "解", "震艮": "小过",
     "震巽": "恒", "震离": "丰", "震兑": "归妹",
     "坎乾": "需", "坎坤": "比", "坎震": "屯", "坎坎": "坎", "坎艮": "蹇",
     "坎巽": "井", "坎离": "既济", "坎兑": "节",
     "艮乾": "大畜", "艮坤": "剥", "艮震": "颐", "艮坎": "蒙", "艮艮": "艮",
     "艮巽": "蛊", "艮离": "贲", "艮兑": "损",
     "巽乾": "小畜", "巽坤": "观", "巽震": "益", "巽坎": "涣", "巽艮": "渐",
-    "巽巽": "巽", "巽离": "鼎", "巽兑": "中孚",
+    "巽巽": "巽", "巽离": "家人", "巽兑": "中孚",
     "离乾": "大有", "离坤": "晋", "离震": "噬嗑", "离坎": "未济", "离艮": "旅",
     "离巽": "鼎", "离离": "离", "离兑": "睽",
-    "兑乾": "夬", "兑坤": "萃", "兑震": "归妹", "兑坎": "困", "兑艮": "咸",
-    "兑巽": "中孚", "兑离": "睽", "兑兑": "兑",
+    "兑乾": "夬", "兑坤": "萃", "兑震": "随", "兑坎": "困", "兑艮": "咸",
+    "兑巽": "大过", "兑离": "革", "兑兑": "兑",
 }
 
 # =============================================================================
@@ -65,74 +65,73 @@ HEXAGRAM_LOOKUP = {
 # key = "外卦名+内卦名"，value = (index, 状态名, 物理描述)
 # =============================================================================
 
-HEX_STATES: dict[str, tuple[int, str, str]] = {
-    # 模块一：系统初始化与早期摩擦 (01-08)
-    "乾乾": (1,  "绝对过热态",  "内外全量刚性扩张。系统算力满载，不计成本疯狂输出。极化警告：无缓冲垫，即将因资源枯竭而刚性折断。"),
-    "坤坤": (2,  "绝对基态",    "内外全量柔性收缩。系统放弃一切主动权，呈现纯粹的物理承载态。极度稳定，无内耗，等待外部能量注入。"),
-    "坎震": (3,  "受限爆发态",  "内系统底层爆发动能，外系统存在高压陷阱。系统启动受阻，动能转化为高热内耗，必须强行建立底层基础设施。"),
-    "巽坎": (4,  "信息屏蔽态",  "内系统高压，外系统顶层锁死。系统处于盲态，缺乏信息输入与反馈。唯有通过试错或强力打破边界以获取数据。"),
-    "坎乾": (5,  "强制降频态",  "内系统极速扩张，外系统存在物理阻力。动能不能直接释放，必须进入待机模式，消耗时间而非空间。"),
-    "乾坎": (6,  "高阻抗摩擦态", "内系统处于封闭高压，外系统采取刚性压制。系统间无有效接口，产生极高摩擦热。策略：立刻停止能量输出，退出当前博弈。"),
-    "坤坎": (7,  "集中暴力输出态", "内系统高度集权管控，外系统完全退让。系统抽干所有非核心资源，转化为单一维度的暴力打击能力。"),
-    "坎坤": (8,  "低能耗吸附态", "内系统零动能，外系统形成强大的引力中心。系统放弃独立边界，执行依附协议，以此换取生存资源。"),
-
-    # 模块二：资源累积与小周期循环 (09-16)
-    "巽乾": (9,  "微阻挡蓄能态", "内系统高速扩张，被外系统柔性边界轻微兜住。能量输出被暂时拦截并转化为势能，但约束力极弱。"),
-    "兑乾": (10, "高危跟随态",  "内系统上层开放，紧跟外系统的绝对刚性。如同在剃刀边缘行走，必须维持极高精度的跟随步频，一旦错位即被碾压。"),
-    "坤乾": (11, "完美热力对流", "外系统完全下沉退让，内系统全量向上扩张。能量无摩擦交换，系统效率达到理论最高值。警告：最高点即为衰落的起点。"),
-    "乾坤": (12, "绝对熵死态",  "外系统向上膨胀锁死，内系统向下收缩躺平。上下能量通道彻底断裂，零信息交换，系统走向僵尸化。"),
-    "乾离": (13, "同频共振态",  "内系统中层空虚，外系统全量输出。内系统放弃部分边界，与外部形成最大公约数，实现大范围网络协同。"),
-    "离乾": (14, "核心吸积态",  "内系统全量扩张，外系统中空形成引力黑洞。内部庞大的能量被外部的高层级节点捕获并整合，实现资源最大化占有。"),
-    "艮坤": (15, "势能隐藏态",  "内系统拥有高层动能，却将外系统伪装为绝对柔弱。通过向下兼容来降低环境阻力，是最高效的安全扩张策略。"),
-    "震坤": (16, "动能预释放态", "内系统绝对静止，外系统底层爆发动能。环境出现上升气流，系统借势启动，呈顺滑滑行状态。"),
-
-    # 模块三：系统重构与内部消化 (17-26)
-    "兑震": (17, "动能牵引态",  "内系统底层爆发，外系统开放接口。内部的新生能量顺势滑入外部轨道，放弃主导权以换取运动空间。"),
-    "巽巽": (18, "代码重构态",  "内系统僵化，外系统顶层锁死。系统内部积累了大量垃圾数据，必须启动底层清灰和重构程序。"),
-    "坤兑": (19, "降维覆盖态",  "内系统能量充盈并开放接口，外系统完全不设防。高势能向低势能进行无阻力俯冲与覆盖。"),
-    "离震": (21, "暴力粉碎态",  "内系统底层爆发，遭遇外系统中空的卡点。系统接口处卡入异物，必须启动最高优先级的暴力破解，咬碎阻碍。"),
-    "离巽": (22, "表层渲染态",  "内外系统核心均不扩张，通过UI界面的修饰来降低交互阻力。低能耗，但无法改变底层逻辑。"),
-    "震震": (51, "连续冲击波",  "内外系统底层接连爆发巨大动能。巨大的外部输入导致系统发生高频振荡，测试系统抗压阈值。"),
-    "乾震": (25, "底层驱动态",  "内系统依据最本能的动能运转，外系统呈现绝对客观规律。只要动作符合底层物理学，不产生主观偏差，即无内耗。"),
-    "艮乾": (26, "高压封存态",  "内系统疯狂扩张，被外系统顶层绝对死锁强行压制。能量无法输出，在内部被极限压缩，酝酿核聚变级别的势能。"),
-
-    # 模块四：高危博弈与震荡周期 (27-36)
-    "艮震": (27, "资源吞吐态",  "内系统底层爆发，外系统顶层锁死，中间全部为0。形成一个巨大的吞噬结构，系统进入纯粹的资源输入与消化模式。"),
-    "兑巽": (28, "承重极限态",  "两端虚弱，中段过度膨胀。系统中间层负载过大，根基与顶层无法支撑，即将发生结构性断裂。必须采取极端降重操作。"),
-    "坎坎": (29, "深渊闭环态",  "内外系统全为内部高压。系统跌入死循环的物理陷阱，周围没有借力点。只能凭借核心极度专注来熬过时间周期。"),
-    "离离": (30, "高耗散辐射态", "内外系统皆为中空辐射。系统处于烈火烹油的极度活跃期，极度光鲜但没有核心基本盘，必须持续吞噬外部燃料才能存活。"),
-    "兑艮": (31, "无缝耦合态",  "内系统顶层刚性，外系统底部开放。一凸一凹，两个子系统发生高速的化学反应与能量对接，无物理摩擦。"),
-    "巽震": (32, "动态锁定态",  "内系统渗透，外系统爆发，两者形成稳定的力学对冲结构。系统维持在一个长周期的动态平衡带中。"),
-    "乾艮": (33, "战略脱离态",  "外系统全面刚性压制，内系统仅保留上层动能。发现不可抗力的环境恶化，系统立刻切断底层累赘，执行高能效的逃逸动作。"),
-    "震乾": (34, "暴力冲撞态",  "内系统全量扩张，外系统遭遇底层爆发。系统动能过剩，以硬碰硬的方式直接撞击外部边界，极易产生物理损伤。"),
-    "离坤": (35, "无阻力爬升态", "内系统完全柔性，外系统呈现引力空洞。系统如日出般顺滑地进入高位，没有遭遇任何结构性抵抗。"),
-    "坤离": (36, "黑盒隐匿态",  "内系统处于高耗散态，但外系统全面封杀。系统必须立刻关闭所有对外输出端口，转入地下潜伏，以保全核心代码。"),
-
-    # 模块五：复杂结构与矛盾处理 (37-54)
-    "巽离": (37, "防火墙内网态", "建立严格的内部权限控制系统。通过明确上下级接口，将系统内耗降至最低。"),
-    "离兑": (38, "协议不兼容态", "内外系统目标函数完全相反，无法进行有效通信。只能搁置底层逻辑争议，寻找微小的交集点进行点对点交易。"),
-    "坎艮": (39, "物理死角态",  "前有高压陷阱，后有刚性高墙。系统动能被完全锁死。唯一的物理学解法是：原路返回，寻找新路径。"),
-    "震坎": (40, "压强释放态",  "内系统高压，外系统动能爆发。外部环境的剧变击碎了原有的陷阱，系统内部的高压瞬间得以释放，危机解除。"),
-    "艮兑": (41, "底层上行态",  "主动削减底层资源，输送给高层。系统执行集中力量办大事协议，牺牲局部换取整体安全。"),
-    "震巽": (42, "顶层下放态",  "高层削减自身权限与资源，向下灌溉给底层。系统执行释放流动性协议，激发底层算力与活力。"),
-    "兑乾": (43, "单点突破态",  "内系统全量刚性扩张，只剩外系统顶层最后一块柔性阻碍。系统汇聚所有动能，执行最后的大决战，瞬间冲破阈值。"),
-    "巽乾": (44, "底层病毒态",  "外系统全面刚健，但在内系统最底层出现了一个微小的柔性接口。极度危险的特洛伊木马，看似微弱，实则足以腐蚀整个刚性架构。"),
-    "兑坤": (45, "高密度汇聚态", "外系统提供开放接口，内系统作为庞大的承载盘。资源、信息、算力向中心节点呈漏斗状高密度聚集。"),
-    "巽坤": (46, "柔性渗透态",  "内系统如植物根系般渗透，外系统毫不抵抗。一种低烈度、不引发警报的持续性阶层跃升。"),
-    "兑坎": (47, "动能枯竭态",  "内系统处于高压陷阱，外系统接口破损。系统水位降至临界点以下，资源断绝，只能依靠核心代码的绝对韧性维持不崩溃。"),
-    "坎巽": (48, "底层开源态",  "系统结构固定不变，但深挖底层数据库。不向外扩张，而是通过建立垂直通道，持续提取地下势能供全系统使用。"),
-    "坎兑": (60, "流量控制态",  "内系统全面开放，外系统设立卡点。不能无限制释放，必须对输入/输出的带宽进行精确的物理阀门控制。"),
-    "震兑": (54, "非标并入态",  "内系统开放缺口，外系统动能爆发。以不合常规、缺乏核心控制权的方式强行并入大系统。初期快速，后期隐患极大。"),
-
-    # 模块六：极致演化与最终循环 (55-64)
-    "震离": (55, "超量载荷态",  "内系统极度活跃燃烧，外系统雷霆爆发。系统能量处于历史最高峰，但极不稳定，如同超新星爆发的前夜，必然迅速走向黯淡。"),
-    "离艮": (56, "游离散列态",  "内系统被锁死，外系统燃烧耗散。系统失去基本盘，变为游离节点，只能在外部网络中临时挂载，无法建立长期积累。"),
-    "兑兑": (58, "全面开源态",  "内外系统均打开顶层接口。系统处于绝对开放状态，高频地进行物质与信息交换，容易引发共振。"),
-    "巽坎": (59, "结构溶解态",  "内系统处于封闭高压，外系统如同强风渗透。原本坚固的系统边界被外部力量吹散、溶解，资源重新流入公共池。"),
-    "巽兑": (61, "底层互信握手", "外系统上层开放，内系统底层渗透，中心为空。系统间建立了不依赖武力的极高强度信息验证协议。"),
-    "震艮": (62, "低频微调试态", "两端强，中间弱。系统无法承担宏大战略，只能进行极低风险的、战术级别的微小超越与调整。"),
-    "坎离": (63, "绝对平衡陷阱", "内外系统的阴阳爻100%精准匹配。致命状态！系统达到了完美的热力学平衡，势能差归零。这意味着系统彻底失去了演化动能，下一秒必然开始崩坏。"),
-    "离坎": (64, "高势能混沌态", "内外系统的阴阳爻100%全部错位。最混乱，但也是最优状态。系统充满巨大的摩擦与势能差，意味着无限的演化动力与重组空间，是下一个大周期的起点。"),
+# Canonical 64-node table compiled from 原理层《阶段一：底层状态节点.md》.
+# key = outer trigram name + inner trigram name, with bit strings interpreted as B1..B6.
+HEX_STATES = {
+    "乾乾": (1, "绝对过热态", "内外全量刚性扩张。系统算力满载，不计成本疯狂输出；无缓冲垫，即将因资源枯竭而刚性折断。"),
+    "坤坤": (2, "绝对基态", "内外全量柔性收缩。系统放弃主动权，呈现纯粹承载态，等待外部能量注入。"),
+    "坎震": (3, "受限爆发态", "内系统底层爆发动能，外系统存在高压陷阱。系统启动受阻，动能转化为高热内耗。"),
+    "艮坎": (4, "信息屏蔽态", "内系统高压，外系统顶层锁死。系统处于盲态，缺乏信息输入与反馈。"),
+    "坎乾": (5, "强制降频态", "内系统极速扩张，外系统存在物理阻力。动能不能直接释放，必须进入待机模式。"),
+    "乾坎": (6, "高阻抗摩擦态", "内系统处于封闭高压，外系统刚性压制。系统间无有效接口，产生极高摩擦热。"),
+    "坤坎": (7, "集中暴力输出态", "内系统高度集权管控，外系统完全退让。系统抽干非核心资源，转化为单一暴力打击能力。"),
+    "坎坤": (8, "低能耗吸附态", "内系统零动能，外系统形成引力中心。系统放弃独立边界，以依附协议换取生存资源。"),
+    "巽乾": (9, "微阻挡蓄能态", "内系统高速扩张，被外系统柔性边界轻微兜住。能量输出被暂时拦截并转化为势能。"),
+    "乾兑": (10, "高危跟随态", "内系统上层开放，紧跟外系统绝对刚性。必须维持高精度跟随，错位即被碾压。"),
+    "坤乾": (11, "完美热力对流", "外系统完全下沉退让，内系统全量向上扩张。能量无摩擦交换，效率达到理论最高值。"),
+    "乾坤": (12, "绝对熵死态", "外系统向上膨胀锁死，内系统向下收缩躺平。上下能量通道断裂，系统走向僵尸化。"),
+    "乾离": (13, "同频共振态", "内系统中层空虚，外系统全量输出。内系统放弃部分边界，与外部形成最大公约数。"),
+    "离乾": (14, "核心吸积态", "内系统全量扩张，外系统中空形成引力黑洞，捕获并整合内部庞大能量。"),
+    "坤艮": (15, "势能隐藏态", "内系统拥有高层动能，却将外系统伪装为绝对柔弱，以向下兼容降低环境阻力。"),
+    "震坤": (16, "动能预释放态", "内系统绝对静止，外系统底层爆发动能。环境出现上升气流，系统借势启动。"),
+    "兑震": (17, "动能牵引态", "内系统底层爆发，外系统开放接口。内部新生能量顺势滑入外部轨道。"),
+    "艮巽": (18, "代码重构态", "内系统僵化，外系统顶层锁死。系统内部垃圾数据堆积，必须启动底层清灰和重构。"),
+    "坤兑": (19, "降维覆盖态", "内系统能量充盈并开放接口，外系统完全不设防。高势能向低势能无阻力覆盖。"),
+    "巽坤": (20, "数据采集态", "内系统绝对静止，外系统展示信息阵列。停止物理动作，全面开启传感器。"),
+    "离震": (21, "暴力粉碎态", "内系统底层爆发，遭遇外系统中空卡点。接口卡入异物，必须启动暴力破解。"),
+    "艮离": (22, "表层渲染态", "内外系统核心均不扩张，通过 UI 修饰降低交互阻力；低能耗但不改底层逻辑。"),
+    "艮坤": (23, "底座坍塌态", "内系统完全崩溃，外系统仅剩顶层刚性。底层资源被抽干，系统面临毁灭性解体。"),
+    "坤震": (24, "系统重启态", "在绝对零度废墟中，内系统底层出现第一个 1。旧系统死亡，新循环开始。"),
+    "乾震": (25, "底层驱动态", "内系统依据底层本能动能运转，外系统呈现客观规律。符合底层物理学则无内耗。"),
+    "艮乾": (26, "高压封存态", "内系统疯狂扩张，被外系统顶层死锁强行压制。能量无法输出，在内部极限压缩。"),
+    "艮震": (27, "资源吞吐态", "内系统底层爆发，外系统顶层锁死，中间全部为空。系统进入资源输入与消化模式。"),
+    "兑巽": (28, "承重极限态", "两端虚弱，中段过度膨胀。系统中间层负载过大，根基与顶层无法支撑。"),
+    "坎坎": (29, "深渊闭环态", "内外系统全为内部高压。系统跌入死循环陷阱，只能凭核心专注熬过周期。"),
+    "离离": (30, "高耗散辐射态", "内外系统皆为中空辐射。系统极度活跃但没有核心基本盘，必须持续吞噬外部燃料。"),
+    "兑艮": (31, "无缝耦合态", "内系统顶层刚性，外系统底部开放。两个子系统高速能量对接，无物理摩擦。"),
+    "震巽": (32, "动态锁定态", "内系统渗透，外系统爆发。两者形成稳定的力学对冲结构。"),
+    "乾艮": (33, "战略脱离态", "外系统全面刚性压制，内系统仅保留上层动能。系统切断底层累赘，执行逃逸。"),
+    "震乾": (34, "暴力冲撞态", "内系统全量扩张，外系统底层爆发。系统动能过剩，硬碰硬撞击外部边界。"),
+    "离坤": (35, "无阻力爬升态", "内系统完全柔性，外系统呈现引力空洞。系统顺滑进入高位，无结构性抵抗。"),
+    "坤离": (36, "黑盒隐匿态", "内系统高耗散，外系统全面封杀。系统必须关闭对外输出端口，转入潜伏。"),
+    "巽离": (37, "防火墙内网态", "建立严格内部权限控制，通过明确接口降低系统内耗。"),
+    "离兑": (38, "协议不兼容态", "内外系统目标函数相反，无法有效通信；只能寻找微小交集点交易。"),
+    "坎艮": (39, "物理死角态", "前有高压陷阱，后有刚性高墙。系统动能被完全锁死，必须原路返回寻找新路径。"),
+    "震坎": (40, "压强释放态", "内系统高压，外系统动能爆发。外部剧变击碎陷阱，内部高压瞬间释放。"),
+    "艮兑": (41, "底层上行态", "主动削减底层资源并输送给高层，牺牲局部换取整体安全。"),
+    "巽震": (42, "顶层下放态", "高层削减自身权限与资源，向下灌溉给底层，激发底层算力与活力。"),
+    "兑乾": (43, "单点突破态", "内系统全量刚性扩张，只剩外系统顶层柔性阻碍。系统汇聚动能冲破阈值。"),
+    "乾巽": (44, "底层病毒态", "外系统全面刚健，但内系统底层出现柔性接口。微弱缺口足以腐蚀刚性架构。"),
+    "兑坤": (45, "高密度汇聚态", "外系统提供开放接口，内系统作为承载盘。资源、信息、算力向中心高密度聚集。"),
+    "坤巽": (46, "柔性渗透态", "内系统如根系渗透，外系统毫不抵抗。低烈度、持续性的阶层跃升。"),
+    "兑坎": (47, "动能枯竭态", "内系统处于高压陷阱，外系统接口破损。资源断绝，只能依靠核心韧性维持。"),
+    "坎巽": (48, "底层开源态", "系统结构固定不变，但通过垂直通道深挖底层数据库，持续提取地下势能。"),
+    "兑离": (49, "底层格式化态", "内系统高耗散，外系统破损开放。旧结构被高温熔毁，底层协议被强制重写。"),
+    "离巽": (50, "重新编译态", "内系统渗透，外系统核心中空。在旧系统废墟上建立新的容器与权力分配机制。"),
+    "震震": (51, "连续冲击波", "内外系统底层接连爆发巨大动能，造成高频振荡，测试抗压阈值。"),
+    "艮艮": (52, "绝对静止锁死", "内外系统的动能全部在顶层遭遇刚性拦截，系统停止一切物理位移与能量交换。"),
+    "巽艮": (53, "模块化推进态", "内系统被顶层压制，外系统如风渗透。不能跃进，只能进行不可逆微小迭代。"),
+    "震兑": (54, "非标并入态", "内系统开放缺口，外系统动能爆发。系统以非标准方式强行并入大系统。"),
+    "震离": (55, "超量载荷态", "内系统极度活跃燃烧，外系统雷霆爆发。能量处于高峰但极不稳定。"),
+    "离艮": (56, "游离散列态", "内系统被锁死，外系统燃烧耗散。系统失去基本盘，只能在外部网络临时挂载。"),
+    "巽巽": (57, "无孔不入态", "内外均呈强渗透性。不正面碰撞，而以高频微操作渗透防线。"),
+    "兑兑": (58, "全面开源态", "内外系统均打开顶层接口，处于绝对开放和高频交换状态，容易引发共振。"),
+    "巽坎": (59, "结构溶解态", "内系统封闭高压，外系统强风渗透。系统边界被吹散、溶解，资源流入公共池。"),
+    "坎兑": (60, "流量控制态", "内系统全面开放，外系统设立卡点。必须精确控制输入输出带宽。"),
+    "巽兑": (61, "底层互信握手", "外系统上层开放，内系统底层渗透，中心为空。系统间建立高强度信用验证协议。"),
+    "震艮": (62, "低频微调试态", "两端强、中间弱。系统无法承担宏大战略，只能进行低风险战术微调。"),
+    "坎离": (63, "绝对平衡陷阱", "内外系统阴阳精准匹配，势能差归零。完美热力学平衡意味着失去演化动能。"),
+    "离坎": (64, "高势能混沌态", "内外系统阴阳全部错位，摩擦与势能差巨大，拥有演化动力与重组空间。"),
 }
 
 
@@ -202,6 +201,8 @@ class FSMState:
             R0: 基础耗散率（默认值 0.1）
             C0: 压强累积率（默认值 0.15）
         """
+        if len(bits) != 6 or any(c not in "01" for c in bits):
+            raise ValueError("bits must be exactly 6 characters of 0/1")
         B = [int(c) for c in bits]
         E_initial = [E0] * 6
         E = [E0] * 6
@@ -212,6 +213,60 @@ class FSMState:
         C = [C0] * 6
         return cls(B=B, E=E, P=P, E_initial=E_initial,
                     R=R, R_base=R_base, tau=tau, C=C)
+
+    @classmethod
+    def from_physics(cls,
+                     bits: str,
+                     E: list[float],
+                     P: list[float],
+                     R: list[float],
+                     tau: list[float],
+                     C: Optional[list[float]] = None,
+                     E_initial: Optional[list[float]] = None,
+                     R_base: Optional[list[float]] = None) -> "FSMState":
+        """Build a state from measured layer-level physics inputs."""
+        if len(bits) != 6 or any(c not in "01" for c in bits):
+            raise ValueError("bits must be exactly 6 characters of 0/1")
+
+        def six(values: Optional[list[float]], default: float, name: str) -> list[float]:
+            if values is None:
+                return [default] * 6
+            if len(values) != 6:
+                raise ValueError(f"{name} must contain exactly 6 numbers")
+            return [float(v) for v in values]
+
+        E_values = six(E, DEFAULT_E0, "E")
+        P_values = six(P, DEFAULT_P0, "P")
+        R_values = six(R, DEFAULT_R, "R")
+        tau_values = six(tau, DEFAULT_TAU, "tau")
+        C_values = six(C, DEFAULT_C, "C")
+        E_initial_values = six(E_initial, DEFAULT_E0, "E_initial") if E_initial is not None else E_values.copy()
+        R_base_values = six(R_base, DEFAULT_R, "R_base") if R_base is not None else R_values.copy()
+
+        for name, values in {
+            "E": E_values,
+            "P": P_values,
+            "R": R_values,
+            "C": C_values,
+            "E_initial": E_initial_values,
+            "R_base": R_base_values,
+        }.items():
+            if any(v < 0 for v in values):
+                raise ValueError(f"{name} values must be non-negative")
+        for name, values in {"tau": tau_values}.items():
+            if any(v <= 0 for v in values):
+                raise ValueError(f"{name} values must be positive")
+
+        return cls(
+            B=[int(c) for c in bits],
+            E=E_values,
+            P=P_values,
+            E_initial=E_initial_values,
+            R=R_values,
+            R_base=R_base_values,
+            tau=tau_values,
+            C=C_values,
+        )
 
     def full_bits(self) -> str:
         """返回 6 位完整字符串（Bit1 在左，Bit6 在右）"""
@@ -266,19 +321,10 @@ def e_dimension(R_actual: float, R_base: float) -> float:
     """
     e维度（能量耗散轴）
 
-    分段定义：
-    - ratio ∈ [0, 0.5]: e = 1 - 2*ratio（线性衰减）
-    - ratio ∈ (0.5, 1.0]: e = 0（平台期，表示中等摩擦）
-    - ratio > 1.0: e = max(-1, 1 - ratio)（继续衰减至-1）
+    原理层公式：
+    e = 1 - 2 * min(1, (R_actual - R_base) / R_base)
 
-    设计文档中的表格：
-    - ratio=0（正常） → e=1（网络顺畅）
-    - ratio=0.5（50%偏离） → e=0（中等摩擦）
-    - ratio=1.0（100%偏离，两倍基准能耗） → e=0（严重摩擦，但不是断联）
-    - ratio>1.0 → e=-1（完全断联/孤岛）
-
-    注意：设计文档中公式 e = 1 - 2*min(1, ratio) 在 ratio=1.0 时给出 e=-1，
-    与表格中 e=0 的定义矛盾。本实现遵循表格的行为定义。
+    若实际耗散低于基准，视为无额外摩擦，e 保持 1。
 
     Args:
         R_actual: 当前耗散率
@@ -289,13 +335,8 @@ def e_dimension(R_actual: float, R_base: float) -> float:
     """
     if R_base <= 0:
         return -1.0
-    ratio = abs(R_actual - R_base) / R_base
-    if ratio <= 0.5:
-        return 1.0 - 2.0 * ratio
-    elif ratio <= 1.0:
-        return 0.0
-    else:
-        return max(-1.0, 1.0 - ratio)
+    ratio = max(0.0, (R_actual - R_base) / R_base)
+    return max(-1.0, min(1.0, 1.0 - 2.0 * min(1.0, ratio)))
 
 
 def t_dimension(E_current: float, E_initial: float) -> float:
@@ -493,7 +534,7 @@ def max_stress_trigger(state: FSMState) -> tuple[int, str]:
         tau_i = state.tau[idx]
 
         # 上下邻居
-        B_down = state.B[idx - 1] if idx > 0 else 0
+        B_down = state.B[idx - 1] if idx > 0 else 1
         B_up = state.B[idx + 1] if idx < 5 else 0
 
         # 三大维度应力分量
@@ -639,6 +680,309 @@ def compute_U(state: FSMState) -> tuple[float, float, float, float]:
     )
 
 
+def tensor_for_bit(state: FSMState, i: int) -> dict[str, float | int]:
+    """Return the SSOT semantic tensor T(e,p,t) for one layer."""
+    idx = i - 1
+    return {
+        "e": e_dimension(state.R[idx], state.R_base[idx]),
+        "p": p_dimension(i, state.B[idx]),
+        "t": t_dimension(state.E[idx], state.E_initial[idx]),
+    }
+
+
+def _ceil_ttl(remaining: float, rate: float) -> Optional[int]:
+    if remaining <= 0:
+        return 0
+    if rate <= 0:
+        return None
+    return int(math.ceil(remaining / rate))
+
+
+def collapse_ttl(state: FSMState, i: int) -> Optional[int]:
+    """Ticks until B[i]=1 exhausts fuel and collapses to 0."""
+    idx = i - 1
+    if state.B[idx] != 1:
+        return None
+    B_down = state.B[idx - 1] if idx > 0 else 1
+    return _ceil_ttl(state.E[idx], state.R[idx] * alpha(B_down))
+
+
+def pressure_ttl(state: FSMState, i: int) -> Optional[int]:
+    """Ticks until layer pressure reaches tau."""
+    idx = i - 1
+    B_up = state.B[idx + 1] if idx < 5 else 0
+    return _ceil_ttl(state.tau[idx] - state.P[idx], state.C[idx] * B_up)
+
+
+def layer_phase(state: FSMState, i: int) -> str:
+    """
+    ADC four-phase label:
+    0  = stable receptive layer
+    0* = compressed layer near explosion
+    1  = stable active layer
+    1* = active layer near collapse/crush
+    """
+    idx = i - 1
+    B_i = state.B[idx]
+    pressure_ratio = state.P[idx] / state.tau[idx] if state.tau[idx] > 0 else 1.0
+    energy_ratio = state.E[idx] / state.E_initial[idx] if state.E_initial[idx] > 0 else 0.0
+
+    if B_i == 1:
+        ttl_values = [v for v in (collapse_ttl(state, i), pressure_ttl(state, i)) if v is not None]
+        near_break = (ttl_values and min(ttl_values) <= 1) or energy_ratio <= 0.2 or pressure_ratio >= 0.8
+        return "1*" if near_break else "1"
+
+    ttl = pressure_ttl(state, i)
+    near_break = (ttl is not None and ttl <= 1) or pressure_ratio >= 0.8
+    return "0*" if near_break else "0"
+
+
+def layer_diagnostic(state: FSMState, i: int) -> dict[str, Any]:
+    """Physics-first diagnostic for one layer."""
+    idx = i - 1
+    B_i = state.B[idx]
+    collapse = collapse_ttl(state, i)
+    pressure = pressure_ttl(state, i)
+    event = "stable"
+    ttl = None
+    next_value = B_i
+
+    if B_i == 1:
+        candidates = []
+        if collapse is not None:
+            candidates.append(("collapse", collapse, 0))
+        if pressure is not None:
+            candidates.append(("crush", pressure, 0))
+        if candidates:
+            event, ttl, next_value = min(candidates, key=lambda item: item[1])
+    else:
+        if pressure is not None:
+            event, ttl, next_value = ("explosion", pressure, 1)
+
+    tensor = tensor_for_bit(state, i)
+    sigma = max(
+        stress_p(B_i, i),
+        stress_e(state.R[idx], state.R_base[idx]),
+        stress_t(state.E[idx], state.E_initial[idx]),
+        state.P[idx] / state.tau[idx] if state.tau[idx] > 0 else 1.0,
+    )
+    return {
+        "bit": i,
+        "B": B_i,
+        "phase": layer_phase(state, i),
+        "event": event,
+        "ttl": ttl,
+        "next_value": next_value,
+        "sigma": min(1.0, max(0.0, sigma)),
+        "tensor": tensor,
+        "E": state.E[idx],
+        "P": state.P[idx],
+        "R": state.R[idx],
+        "R_base": state.R_base[idx],
+        "tau": state.tau[idx],
+        "C": state.C[idx],
+    }
+
+
+def first_hard_interrupt(state: FSMState) -> dict[str, Any]:
+    """Find the first deterministic hard interrupt across all 6 layers."""
+    layers = [layer_diagnostic(state, i) for i in range(1, 7)]
+    candidates = [layer for layer in layers if layer["ttl"] is not None]
+    if not candidates:
+        focus_bit, stress_type = max_stress_trigger(state)
+        focus = layers[focus_bit - 1]
+        return {
+            "focus_bit": focus_bit,
+            "event": stress_type,
+            "ttl": None,
+            "next_bits": state.full_bits(),
+            "tensor": focus["tensor"],
+            "layers": layers,
+        }
+
+    focus = min(candidates, key=lambda layer: (layer["ttl"], -layer["sigma"], layer["bit"]))
+    new_bits = list(state.full_bits())
+    new_bits[focus["bit"] - 1] = str(focus["next_value"])
+    return {
+        "focus_bit": focus["bit"],
+        "event": focus["event"],
+        "ttl": focus["ttl"],
+        "next_bits": "".join(new_bits),
+        "tensor": focus["tensor"],
+        "layers": layers,
+    }
+
+
+def normalize_uncertainty(U: Optional[list[float] | dict[str, float]] = None) -> Optional[list[float]]:
+    """Normalize [U_E,U_P,U_R,U_tau] uncertainty input."""
+    if U is None:
+        return None
+    if isinstance(U, dict):
+        values = [U.get("U_E", 0.0), U.get("U_P", 0.0), U.get("U_R", 0.0), U.get("U_tau", 0.0)]
+    else:
+        if len(U) != 4:
+            raise ValueError("U must contain exactly 4 values: [U_E,U_P,U_R,U_tau]")
+        values = U
+    return [min(1.0, max(0.0, float(v))) for v in values]
+
+
+def uncertainty_confidence(U: Optional[list[float] | dict[str, float]] = None) -> float:
+    """Confidence from measured input uncertainty, per principle-layer formula."""
+    values = normalize_uncertainty(U)
+    if values is None:
+        return 1.0
+    return 1.0 - max(values)
+
+
+def monte_carlo_state_distribution(state: FSMState,
+                                   U: Optional[list[float] | dict[str, float]] = None,
+                                   N: int = MONTE_CARLO_N) -> list[dict[str, Any]]:
+    """
+    Perturb raw physics inputs and count next-state outcomes.
+    U order: [U_E, U_P, U_R, U_tau].
+    """
+    if N <= 0:
+        return []
+    U_values = normalize_uncertainty(U) or [U_INPUT, U_INPUT, U_INPUT, U_INPUT]
+    U_E, U_P, U_R, U_tau = U_values
+
+    counts: dict[str, int] = {}
+    for _ in range(N):
+        E = [max(0.0, random.gauss(v, abs(v) * U_E)) for v in state.E]
+        P = [max(0.0, random.gauss(v, abs(v) * U_P)) for v in state.P]
+        R = [max(0.0, random.gauss(v, abs(v) * U_R)) for v in state.R]
+        tau = [max(1e-9, random.gauss(v, abs(v) * U_tau)) for v in state.tau]
+        noisy = FSMState.from_physics(
+            bits=state.full_bits(),
+            E=E,
+            P=P,
+            R=R,
+            tau=tau,
+            C=state.C,
+            E_initial=state.E_initial,
+            R_base=state.R_base,
+        )
+        interrupt = first_hard_interrupt(noisy)
+        bits = interrupt["next_bits"]
+        counts[bits] = counts.get(bits, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:3]
+    return [
+        {
+            "bits": bits,
+            "probability": count / N,
+            "count": count,
+            "hexagram": get_hexagram_name(bits[:3], bits[3:]),
+        }
+        for bits, count in ranked
+    ]
+
+
+def route_selected_next_bits(route: dict[str, Any], state: FSMState) -> Optional[str]:
+    """Return the single next bits selected by the macro route, when it is unique."""
+    result = route.get("result")
+    path_number = route.get("path_number")
+
+    if path_number in (1, 2) and isinstance(result, dict):
+        next_bits = result.get("next_bits")
+        return next_bits if isinstance(next_bits, str) else None
+
+    if path_number == 3 and isinstance(result, list):
+        if not result:
+            return state.full_bits()
+        first = result[0]
+        if isinstance(first, dict):
+            bits = first.get("bits")
+            return bits if isinstance(bits, str) else None
+
+    return None
+
+
+def route_next_alternatives(route: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return route alternatives for non-singleton routes such as 错/综."""
+    result = route.get("result")
+    if route.get("path_number") != 4 or not isinstance(result, dict):
+        return []
+
+    alternatives = []
+    for key, item in result.items():
+        if not isinstance(item, dict):
+            continue
+        bits = item.get("bits")
+        if isinstance(bits, str):
+            alternatives.append({
+                "key": key,
+                "operation": item.get("operation", key),
+                "bits": bits,
+                "hexagram": item.get("hexagram"),
+                "entropy_S": item.get("entropy_S"),
+            })
+    return alternatives
+
+
+def physics_snapshot(state: FSMState,
+                     U: Optional[list[float] | dict[str, float]] = None,
+                     mc_N: int = MONTE_CARLO_N,
+                     delta_E_ext: float = 0.0,
+                     deadlock_flag: bool = False,
+                     time_in_state: int = 0) -> dict[str, Any]:
+    """Principle-aligned SSOT snapshot for the current physical state."""
+    interrupt = first_hard_interrupt(state)
+    route = route_evolution_path(
+        state,
+        delta_E_ext=delta_E_ext,
+        deadlock_flag=deadlock_flag,
+        time_in_state=time_in_state,
+    )
+    U_E, U_P, U_R, U_tau = compute_U(state)
+    measured_conf = uncertainty_confidence(U)
+    route_next_bits = route_selected_next_bits(route, state)
+    route_alternatives = route_next_alternatives(route)
+    selected_next_bits = route_next_bits if route_next_bits is not None else (
+        None if route_alternatives else interrupt["next_bits"]
+    )
+    return {
+        "bits": state.full_bits(),
+        "inner_bits": state.inner_bits(),
+        "outer_bits": state.outer_bits(),
+        "hexagram": get_hexagram_name(state.inner_bits(), state.outer_bits()),
+        "entropy_S": discrete_entropy(state),
+        "mass_M": state.mass_M(),
+        "focus_bit": interrupt["focus_bit"],
+        "event": interrupt["event"],
+        "ttl": interrupt["ttl"],
+        "next_bits": interrupt["next_bits"],
+        "selected_next_bits": selected_next_bits,
+        "tensor": interrupt["tensor"],
+        "layers": interrupt["layers"],
+        "interrupt": {
+            "focus_bit": interrupt["focus_bit"],
+            "event": interrupt["event"],
+            "ttl": interrupt["ttl"],
+            "next_bits": interrupt["next_bits"],
+            "tensor": interrupt["tensor"],
+        },
+        "route": {
+            "path_number": route["path_number"],
+            "path_name": route["path_name"],
+            "description": route["description"],
+            "next_bits": route_next_bits,
+            "alternatives": route_alternatives,
+            "result": route["result"],
+        },
+        "confidence": {
+            "conf_input": measured_conf,
+            "conf_m1": conf_m1(state),
+            "U_E": U_E,
+            "U_P": U_P,
+            "U_R": U_R,
+            "U_tau": U_tau,
+        },
+        "monte_carlo": monte_carlo_state_distribution(state, U=U, N=mc_N)
+        if measured_conf < 0.8 else [],
+    }
+
+
 def conf_m1(state: FSMState) -> float:
     """
     系统置信度 Conf_M1 = 1 - max(U_E, U_P, U_R, U_tau)
@@ -711,22 +1055,26 @@ def path1_max_stress(state: FSMState) -> dict:
     """
     路径一：微观单点击穿 (Bit Flip)
 
-    通过 Max-Stress Trigger 找到唯一动爻，执行确定性翻转。
+    依据 TTL/阈值方程寻找第一个硬中断点，执行确定性翻转。
+    若尚无任何可达硬中断，则只返回当前最大应力焦点，不提前翻转。
     """
-    focus_bit, stress_type = max_stress_trigger(state)
+    interrupt = first_hard_interrupt(state)
+    focus_bit = interrupt["focus_bit"]
+    stress_type = interrupt["event"]
 
     # 检查是否是Unsupported态（α=2.0）
     idx = focus_bit - 1
-    B_down = state.B[idx - 1] if idx > 0 else 0
+    B_down = state.B[idx - 1] if idx > 0 else 1
     unsupported = (alpha(B_down) > 1.0)
 
-    new_state = flip_bit(state, focus_bit)
+    new_state = flip_bit(state, focus_bit) if interrupt["next_bits"] != state.full_bits() else state
     new_hex = get_hexagram_name(new_state.inner_bits(), new_state.outer_bits())
     hex_index, physics_name, physics_desc = get_hex_state(new_state)
     return {
         "path": 1,
         "triggered_bit": focus_bit,
         "stress_type": stress_type,
+        "ttl": interrupt["ttl"],
         "unsupported": unsupported,
         "next_state": new_state,
         "next_bits": new_state.full_bits(),
@@ -743,18 +1091,18 @@ def path2_hidden_core_exposure(state: FSMState) -> dict:
     """
     路径二：隐性内核暴露 (Hidden Core Drive)
 
-    通过互卦（内外卦互换）暴露系统真实演化动力。
-    当 B[1]^B[2] == 1 或 B[6]^B[5] == 1 时触发。
+    取中间四爻作为隐性引擎，重构为 B2B3B4 | B3B4B5。
+    当 B6^B2 == 1 且潜伏超时后触发。
     """
-    new_inner = state.outer_bits()
-    new_outer = state.inner_bits()
+    new_inner = "".join(str(state.B[i]) for i in (1, 2, 3))
+    new_outer = "".join(str(state.B[i]) for i in (2, 3, 4))
     new_bits = new_inner + new_outer
     new_state = FSMState.from_bits(new_bits)
     new_hex = get_hexagram_name(new_inner, new_outer)
     hex_index, physics_name, physics_desc = get_hex_state(new_state)
     return {
         "path": 2,
-        "operation": "互卦(内外互换)",
+        "operation": "互卦（中间四爻隐性引擎）",
         "next_state": new_state,
         "next_bits": new_bits,
         "next_hexagram": new_hex,
@@ -890,9 +1238,8 @@ def route_evolution_path(state: FSMState,
         }
 
     # 路径二：隐性内核暴露
-    xor_inner = state.B[0] ^ state.B[1] if len(state.B) >= 2 else 0
-    xor_outer = state.B[5] ^ state.B[4] if len(state.B) >= 2 else 0
-    if (xor_inner == 1 or xor_outer == 1) and time_in_state > T_MASK:
+    surface_core_xor = state.B[5] ^ state.B[1]
+    if surface_core_xor == 1 and time_in_state > T_MASK:
         result = path2_hidden_core_exposure(state)
         return {
             "path_number": 2,
@@ -938,7 +1285,7 @@ def raw_physics_step(state: FSMState) -> FSMState:
 
     for i in range(1, 7):
         idx = i - 1
-        B_down = state.B[idx - 1] if idx > 0 else 0
+        B_down = state.B[idx - 1] if idx > 0 else 1
         B_up = state.B[idx + 1] if idx < 5 else 0
 
         new_E_i = step_energy(state.E[idx], state.R[idx], B_down)
@@ -966,13 +1313,14 @@ def compute_system_confidence(state: FSMState) -> dict:
     Returns:
         dict with conf_m1, U_E, U_P, U_R, mean_sigma, std_sigma
     """
-    U_E, U_P, U_R = compute_U(state)
+    U_E, U_P, U_R, U_tau = compute_U(state)
     mc_mean, mc_std = monte_carlo_stress(state)
     return {
         "conf_m1": conf_m1(state),
         "U_E": U_E,
         "U_P": U_P,
         "U_R": U_R,
+        "U_tau": U_tau,
         "mc_mean_sigma": mc_mean,
         "mc_std_sigma": mc_std,
     }

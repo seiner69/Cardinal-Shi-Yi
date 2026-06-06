@@ -4,8 +4,91 @@ LLM Chain - 基于 6-Bit FSM 架构的历史事件分析
 
 import json
 import os
+import re
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
+from pydantic import ValidationError
+
+from src.fsm_kernel import HEXAGRAM_LOOKUP as KERNEL_HEXAGRAM_LOOKUP
+from src.fsm_kernel import TRIGRAM_MAP as KERNEL_TRIGRAM_MAP
+
+
+def _extract_json(response: str) -> dict:
+    """
+    从 LLM 响应中健壮提取 JSON。
+
+    策略：
+    1. 提取 ```json 或 ``` 包裹的代码块
+    2. 通过括号计数匹配找到 { ... } 块
+    3. 清理常见的 markdown 噪声并解析
+    """
+    if not response or not response.strip():
+        raise json.JSONDecodeError("Empty response", "", 0)
+
+    # 策略1: 提取 markdown 代码块
+    code_block_match = re.search(r'```(?:\w+)?\s*\n?(.*?)\n?```', response, re.DOTALL)
+    if code_block_match:
+        candidate = code_block_match.group(1).strip()
+        # 去掉可能的 "json" 前缀
+        if candidate.startswith('json'):
+            candidate = candidate[4:].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass  # 代码块解析失败，尝试其他策略
+
+    # 策略2: 通过括号计数找到 JSON 对象边界
+    # 找第一个 {
+    start = response.find('{')
+    if start == -1:
+        raise json.JSONDecodeError("No JSON object found", response, 0)
+
+    # 括号计数匹配找对应的 }
+    depth = 0
+    end = start
+    in_string = False
+    escape_next = False
+
+    for i in range(start, len(response)):
+        c = response[i]
+
+        if escape_next:
+            escape_next = False
+            continue
+
+        if c == '\\':
+            escape_next = True
+            continue
+
+        if c == '"' and not escape_next:
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+
+    if depth != 0:
+        raise json.JSONDecodeError("Unclosed JSON object", response, start)
+
+    json_candidate = response[start:end]
+
+    try:
+        return json.loads(json_candidate)
+    except json.JSONDecodeError as e:
+        # 清理尾随逗号等常见问题后重试
+        cleaned = re.sub(r',(\s*[}\]])', r'\1', json_candidate)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            raise e
 
 # 尝试导入 Anthropic SDK (MiniMax)
 try:
@@ -19,38 +102,15 @@ from .prompts import get_fsm_system_prompt, get_fsm_intent_rewrite_prompt
 
 load_dotenv()
 
+DEFAULT_LLM_MODEL = "deepseek-v4-flash"
+
 
 # 三爻卦到符号的映射
 TRIGRAM_MAP = {
-    "000": {"name": "坤", "symbol": "☷", "gua": "坤"},
-    "001": {"name": "震", "symbol": "☳", "gua": "震"},
-    "010": {"name": "坎", "symbol": "☵", "gua": "坎"},
-    "011": {"name": "兑", "symbol": "☱", "gua": "兑"},
-    "100": {"name": "巽", "symbol": "☴", "gua": "巽"},
-    "101": {"name": "离", "symbol": "☲", "gua": "离"},
-    "110": {"name": "艮", "symbol": "☶", "gua": "艮"},
-    "111": {"name": "乾", "symbol": "☰", "gua": "乾"},
+    bits: {**item, "gua": item["name"]}
+    for bits, item in KERNEL_TRIGRAM_MAP.items()
 }
-
-# 六爻卦查找表 (outer_bits + inner_bits -> 卦名)
-HEXAGRAM_LOOKUP = {
-    "乾乾": "乾", "乾坤": "否", "乾震": "无妄", "乾坎": "讼", "乾艮": "遯",
-    "乾巽": "姤", "乾离": "同人", "乾兑": "履",
-    "坤乾": "泰", "坤坤": "坤", "坤震": "豫", "坤坎": "师", "坤艮": "谦",
-    "坤巽": "升", "坤离": "明夷", "坤兑": "临",
-    "震乾": "大壮", "震坤": "复", "震震": "震", "震坎": "解", "震艮": "小过",
-    "震巽": "恒", "震离": "丰", "震兑": "归妹",
-    "坎乾": "需", "坎坤": "比", "坎震": "屯", "坎坎": "坎", "坎艮": "蹇",
-    "坎巽": "井", "坎离": "既济", "坎兑": "节",
-    "艮乾": "大畜", "艮坤": "剥", "艮震": "颐", "艮坎": "蒙", "艮艮": "艮",
-    "艮巽": "蛊", "艮离": "贲", "艮兑": "损",
-    "巽乾": "小畜", "巽坤": "观", "巽震": "益", "巽坎": "涣", "巽艮": "渐",
-    "巽巽": "巽", "巽离": "鼎", "巽兑": "中孚",
-    "离乾": "大有", "离坤": "晋", "离震": "噬嗑", "离坎": "未济", "离艮": "旅",
-    "离巽": "鼎", "离离": "离", "离兑": "睽",
-    "兑乾": "夬", "兑坤": "萃", "兑震": "归妹", "兑坎": "困", "兑艮": "咸",
-    "兑巽": "中孚", "兑离": "睽", "兑兑": "兑",
-}
+HEXAGRAM_LOOKUP = KERNEL_HEXAGRAM_LOOKUP
 
 
 def get_hexagram_info(inner_bits: str, outer_bits: str) -> Dict[str, Any]:
@@ -116,6 +176,14 @@ def derive_target_hexagram(
     if len(full_bits) != 6 or focus_bit < 1 or focus_bit > 6:
         return {"hexagram": "乾", "reason": "参数错误"}
 
+    original_hex_info = get_hexagram_info(inner_bits, outer_bits)
+    original_hex = original_hex_info.get("hexagram", "")
+    if stress_type == "稳定":
+        return {
+            "hexagram": original_hex or "乾",
+            "reason": f"{original_hex or '当前态'}卦({full_bits})未触发硬中断，保持当前拓扑，不制造假变爻",
+        }
+
     # 翻转指定Bit
     bit_list = list(full_bits)
     bit_idx = focus_bit - 1  # Bit1对应索引0
@@ -134,8 +202,6 @@ def derive_target_hexagram(
         return {"hexagram": "乾", "reason": "推导失败"}
 
     # 构建理由
-    original_hex_info = get_hexagram_info(inner_bits, outer_bits)
-    original_hex = original_hex_info.get("hexagram", "")
     changed_bit_name = ["初爻", "二爻", "三爻", "四爻", "五爻", "上爻"][focus_bit - 1]
     original_val = full_bits[bit_idx]
     new_val = bit_list[bit_idx]
@@ -168,25 +234,25 @@ class IChingChain:
     def __init__(
         self,
         milvus_client: Optional[FAISSIChingClient] = None,
-        model: str = "MiniMax-M2.7",
+        model: Optional[str] = None,
     ):
         """初始化 Chain"""
         self.milvus_client = milvus_client or FAISSIChingClient()
-        self.model = model
+        self.model = model or os.getenv("MINIMAX_MODEL") or os.getenv("LLM_MODEL") or DEFAULT_LLM_MODEL
 
-        # 优先使用 MiniMax API
+        # 使用 Anthropic-compatible API provider.
         minimax_key = os.getenv("MINIMAX_API_KEY")
-        if minimax_key and minimax_key != "your_minimax_api_key_here":
+        if minimax_key and minimax_key != "your_minimax_api_key_here" and anthropic is not None:
             self.client = anthropic.Anthropic(api_key=minimax_key)
             self._has_api_key = True
         else:
             self.client = None
             self._has_api_key = False
-            print("[WARNING] 未配置 API Key，将使用模拟模式")
+            print("[WARNING] 未配置可用 API Key 或 SDK，将使用模拟模式")
 
     def _call_llm(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 4096) -> str:
         """
-        调用大模型 (MiniMax-M2.7)
+        调用大模型；失败时降级到本地 mock，避免 API 层直接 500。
 
         Args:
             messages: 消息列表
@@ -212,13 +278,17 @@ class IChingChain:
                     "content": msg.get("content", "")
                 })
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=system_content,
-            messages=anthropic_messages,
-            temperature=temperature,
-        )
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=system_content,
+                messages=anthropic_messages,
+                temperature=temperature,
+            )
+        except Exception as exc:
+            print(f"[WARNING] LLM 调用失败，降级为模拟模式: {type(exc).__name__}: {exc}")
+            return self._mock_fsm_response(messages)
 
         # 收集文本输出
         text_output = ""
@@ -280,12 +350,9 @@ class IChingChain:
 
         # Parse JSON
         try:
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
-            return json.loads(response)
+            return _extract_json(response)
         except json.JSONDecodeError:
+            print(f"[WARNING] Intent rewrite JSON 解析失败，原始响应前100字符: {response[:100]}")
             return {
                 "keywords": [],
                 "predicted_hexagrams": [],
@@ -366,26 +433,41 @@ class IChingChain:
 
         # 解析 JSON 响应
         try:
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
-
-            data = json.loads(response)
+            data = _extract_json(response)
 
             # 容错处理 stress_type
-            stress_type = data.get("stress_analysis", {}).get("stress_type", "稳定")
-            if "断裂" in stress_type:
-                stress_type = "向下断裂"
-            elif "撞墙" in stress_type:
-                stress_type = "向上撞墙"
-            else:
-                stress_type = "稳定"
-            data["stress_analysis"]["stress_type"] = stress_type
+            if "stress_analysis" in data and isinstance(data["stress_analysis"], dict):
+                stress_type = data["stress_analysis"].get("stress_type", "稳定")
+                if "断裂" in stress_type:
+                    stress_type = "向下断裂"
+                elif "撞墙" in stress_type:
+                    stress_type = "向上撞墙"
+                else:
+                    stress_type = "稳定"
+                data["stress_analysis"]["stress_type"] = stress_type
+
+            # 填充缺失字段的默认值
+            defaults = {
+                "inner_system": data.get("inner_system", ""),
+                "outer_system": data.get("outer_system", ""),
+                "inner_bits": data.get("inner_bits", "000"),
+                "outer_bits": data.get("outer_bits", "000"),
+                "target_hexagram": data.get("target_hexagram", ""),
+                "hexagram_reason": data.get("hexagram_reason", ""),
+                "referenced_yao": data.get("referenced_yao", ""),
+                "yao_interpretation": data.get("yao_interpretation", ""),
+                "bit_analysis": data.get("bit_analysis", []),
+                "mutation_suggestion": data.get("mutation_suggestion", ""),
+                "energy_focus": data.get("energy_focus", {"focus_bit": 0, "focus_description": ""}),
+                "stress_analysis": data.get("stress_analysis", {"stress_type": "稳定", "analysis": ""}),
+            }
+            for k, v in defaults.items():
+                if k not in data or not data[k]:
+                    data[k] = v
 
             return FSMOutput(**data)
-        except (json.JSONDecodeError, TypeError) as e:
-            print(f"[WARNING] 解析 LLM 响应失败: {e}")
+        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+            print(f"[WARNING] FSM 分析 JSON 解析失败: {e}")
             # 返回默认结构
             return FSMOutput(
                 inner_system="解析失败",
@@ -421,7 +503,8 @@ class IChingChain:
 
         # Step B: Knowledge base search
         print("[INFO] Step B: Knowledge base search...")
-        hexagram = intent_result.get("predicted_hexagrams", [None])[0]
+        predicted_hexagrams = intent_result.get("predicted_hexagrams") or [None]
+        hexagram = predicted_hexagrams[0]
         text_type = intent_result.get("text_type", None)
         query_text = intent_result.get("rewritten_query", history_input)
 

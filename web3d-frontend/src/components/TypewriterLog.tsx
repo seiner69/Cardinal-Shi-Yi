@@ -1,98 +1,89 @@
-import { useEffect, useRef, useState } from 'react'
-
-interface LogEntry {
-  id: string
-  text: string
-  done?: boolean
-}
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface TypewriterLogProps {
   entries: string[]
 }
 
+interface Cursor {
+  entry: number
+  char: number
+}
+
+const SPEED_MS = 30
+
 export function TypewriterLog({ entries }: TypewriterLogProps) {
-  const [visibleEntries, setVisibleEntries] = useState<LogEntry[]>([])
-  const [currentText, setCurrentText] = useState('')
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [currentEntryIdx, setCurrentEntryIdx] = useState(0)
+  const [cursor, setCursor] = useState<Cursor>({ entry: 0, char: 0 })
   const bottomRef = useRef<HTMLDivElement>(null)
-  const speed = 30 // ms per character
+  const signature = useMemo(() => entries.join('\u001f'), [entries])
 
   useEffect(() => {
-    if (entries.length === 0) {
-      setVisibleEntries([])
-      setCurrentText('')
-      setCurrentIndex(0)
-      setCurrentEntryIdx(0)
-      return
-    }
-
-    // Start fresh if entries changed
-    const newEntry: LogEntry = { id: `log-${Date.now()}`, text: entries[entries.length - 1] }
-    if (visibleEntries.length === 0 && entries.length > 0) {
-      setVisibleEntries([{ ...newEntry, done: false }])
-      setCurrentEntryIdx(entries.length - 1)
-      setCurrentIndex(0)
-    } else if (entries.length > visibleEntries.length) {
-      // Add new entry
-      setVisibleEntries(prev => [...prev.map(e => ({ ...e, done: true })), { ...newEntry, done: false }])
-      setCurrentEntryIdx(entries.length - 1)
-      setCurrentIndex(0)
-    }
-  }, [entries])
+    const timeout = window.setTimeout(() => setCursor({ entry: 0, char: 0 }), 0)
+    return () => window.clearTimeout(timeout)
+  }, [signature])
 
   useEffect(() => {
-    if (currentEntryIdx >= entries.length) return
-
-    const text = entries[currentEntryIdx]
-    if (currentIndex >= text.length) {
-      // Move to next entry
-      setVisibleEntries(prev =>
-        prev.map((e, i) => (i === prev.length - 1 ? { ...e, done: true } : e))
-      )
-      setCurrentEntryIdx(prev => prev + 1)
-      setCurrentIndex(0)
-      setCurrentText('')
-      return
+    if (entries.length === 0 && (cursor.entry !== 0 || cursor.char !== 0)) {
+      const timeout = window.setTimeout(() => setCursor({ entry: 0, char: 0 }), 0)
+      return () => window.clearTimeout(timeout)
     }
 
-    const timeout = setTimeout(() => {
-      setCurrentText(text.slice(0, currentIndex + 1))
-      setCurrentIndex(prev => prev + 1)
-    }, speed)
+    if (entries.length > 0 && cursor.entry > entries.length) {
+      const timeout = window.setTimeout(() => setCursor({ entry: entries.length, char: 0 }), 0)
+      return () => window.clearTimeout(timeout)
+    }
+  }, [cursor.char, cursor.entry, entries.length])
 
-    return () => clearTimeout(timeout)
-  }, [currentIndex, currentEntryIdx, entries])
+  useEffect(() => {
+    if (entries.length === 0 || cursor.entry >= entries.length) return
 
-  // Auto scroll to bottom
+    const timeout = window.setTimeout(() => {
+      setCursor((prev) => {
+        if (prev.entry >= entries.length) return { entry: entries.length, char: 0 }
+
+        const current = entries[prev.entry] ?? ''
+        if (prev.char < current.length) {
+          return { entry: prev.entry, char: prev.char + 1 }
+        }
+
+        return { entry: prev.entry + 1, char: 0 }
+      })
+    }, SPEED_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [cursor.char, cursor.entry, entries])
+
+  const completedEntries = useMemo(
+    () => entries.slice(0, Math.min(cursor.entry, entries.length)),
+    [cursor.entry, entries]
+  )
+  const currentText =
+    cursor.entry < entries.length ? entries[cursor.entry].slice(0, cursor.char) : ''
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [visibleEntries, currentText])
+  }, [completedEntries, currentText])
 
   return (
-    <div className="flex flex-col gap-0.5 max-h-32 overflow-y-auto">
-      {visibleEntries.map((entry) => (
-        <div key={entry.id} className="flex items-start gap-1">
-          <span className="font-mono text-[7px] text-gray-400 shrink-0 mt-0.5">›</span>
+    <div className="flex max-h-36 flex-col gap-1 overflow-y-auto">
+      {completedEntries.map((entry, index) => (
+        <div key={`${index}-${entry}`} className="flex items-start gap-1">
+          <span className="mt-0.5 shrink-0 font-mono text-[7px] text-[#9f1239]">&gt;</span>
           <span
-            className="font-mono text-[9px] text-gray-600 leading-relaxed"
-            style={{ fontFamily: "'Noto Serif SC', serif" }}
+            className="text-[10px] leading-relaxed text-[#4f5d6a]"
           >
-            {entry.text}
+            {entry}
           </span>
         </div>
       ))}
 
-      {/* Current typing entry */}
-      {currentEntryIdx < entries.length && (
+      {cursor.entry < entries.length && (
         <div className="flex items-start gap-1">
-          <span className="font-mono text-[7px] text-gray-400 shrink-0 mt-0.5">›</span>
+          <span className="mt-0.5 shrink-0 font-mono text-[7px] text-[#9f1239]">&gt;</span>
           <span
-            className="font-mono text-[9px] text-gray-600 leading-relaxed"
-            style={{ fontFamily: "'Noto Serif SC', serif" }}
+            className="text-[10px] leading-relaxed text-[#4f5d6a]"
           >
             {currentText}
-            <span className="animate-pulse">▌</span>
+            <span className="animate-pulse">|</span>
           </span>
         </div>
       )}

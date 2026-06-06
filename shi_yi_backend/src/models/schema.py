@@ -135,7 +135,7 @@ class FSMNode(BaseModel):
     """当前节点快照 — V2.0 确定性硬算"""
     index: int = Field(..., description="节点序号 1-64，0=未定义")
     name: str = Field(..., description="卦名")
-    code: str = Field(..., description="6位代码")
+    code: str = Field(..., description="内部6位代码，顺序为B1→B6")
     physics_description: str = Field(..., description="物理状态描述")
     entropy_S: float = Field(..., description="系统总熵")
     mass_M: int = Field(..., description="系统总质量（1的数量）")
@@ -159,24 +159,24 @@ class FSMOutput(BaseModel):
     outer_system: str = Field(..., description="外系统定义")
 
     # Step 2: 6-Bit 代码
-    inner_bits: str = Field(..., description="内系统3位代码，如 '100'")
-    outer_bits: str = Field(..., description="外系统3位代码，如 '010'")
-    bit_analysis: list[BitAnalysis] = Field(..., description="每位赋值的事实依据")
+    inner_bits: str = Field(default="000", description="内系统3位代码B1B2B3，如 '100'")
+    outer_bits: str = Field(default="000", description="外系统3位代码B4B5B6，如 '010'")
+    bit_analysis: list[BitAnalysis] = Field(default_factory=list, description="每位赋值的事实依据")
 
     # Step 3: 执行指针
-    energy_focus: EnergyFocus = Field(..., description="能量聚焦位置")
+    energy_focus: EnergyFocus = Field(default_factory=lambda: {"focus_bit": 0, "focus_description": ""}, description="能量聚焦位置")
 
     # Step 4: 物理力学硬算
-    stress_analysis: StressAnalysis = Field(..., description="受力分析结果")
+    stress_analysis: StressAnalysis = Field(default_factory=lambda: {"stress_type": "稳定", "analysis": ""}, description="受力分析结果")
 
     # Step 5: 变爻建议
-    mutation_suggestion: str = Field(..., description="变爻建议（降维或升维）")
-    target_hexagram: str = Field(..., description="目标卦象")
-    hexagram_reason: str = Field(..., description="卦象选择理由")
+    mutation_suggestion: str = Field(default="", description="变爻建议（降维或升维）")
+    target_hexagram: str = Field(default="", description="目标卦象")
+    hexagram_reason: str = Field(default="", description="卦象选择理由")
 
     # 辅助：调用的周易爻辞
-    referenced_yao: str = Field(..., description="调用的爻辞原文")
-    yao_interpretation: str = Field(..., description="爻辞的物理学翻译")
+    referenced_yao: str = Field(default="", description="调用的爻辞原文")
+    yao_interpretation: str = Field(default="", description="爻辞的物理学翻译")
 
     # V2.0 确定性硬算层（可选，LLM模式时为空）
     deterministic: Optional[DeterministicResult] = Field(default=None, description="V2.0 确定性硬算结果")
