@@ -226,6 +226,7 @@ type PhysicsLayerPatch = Partial<Pick<PhysicsLayer, 'E' | 'P' | 'R' | 'R_base' |
 type PhysicsRoutePatch = Partial<Pick<PhysicsInputs, 'delta_E_ext' | 'deadlock_flag' | 'time_in_state' | 'monte_carlo_N'>>
 
 interface StoreState {
+  interfaceMode: 'practical' | 'expert'
   viewMode: 'analysis' | 'simulation' | 'evolution'
   isLoading: boolean
   inferError: string | null
@@ -241,6 +242,7 @@ interface StoreState {
   physicsSnapshot: PhysicsSnapshot | null
   typewriterLogs: string[]
   isSimulating: boolean
+  setInterfaceMode: (mode: 'practical' | 'expert') => void
   setViewMode: (mode: 'analysis' | 'simulation' | 'evolution') => void
   fetchInfer: (query: string) => Promise<void>
   simulateFlip: (bits: string) => Promise<SimulateFlip[]>
@@ -335,6 +337,7 @@ function clearPhysicsResult() {
 }
 
 export const useStore = create<StoreState>((set, get) => ({
+  interfaceMode: 'practical',
   viewMode: 'analysis',
   isLoading: false,
   inferError: null,
@@ -351,6 +354,7 @@ export const useStore = create<StoreState>((set, get) => ({
   typewriterLogs: [],
   isSimulating: false,
 
+  setInterfaceMode: mode => set({ interfaceMode: mode }),
   setViewMode: mode => set({ viewMode: mode }),
 
   fetchInfer: async (query: string) => {
@@ -508,6 +512,7 @@ export const useStore = create<StoreState>((set, get) => ({
   setQuery: (query: string) => set({ query }),
 
   reset: () => set({
+    interfaceMode: 'practical',
     viewMode: 'analysis',
     isLoading: false,
     inferError: null,

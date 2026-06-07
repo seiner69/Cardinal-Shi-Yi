@@ -3,8 +3,10 @@ import { TopNav } from './TopNav'
 import { AnalysisView } from './AnalysisView'
 import { SimulationView } from './SimulationView'
 import { EvolutionView } from './EvolutionView'
+import { PracticalView } from './PracticalView'
 
 export default function OverlayUI() {
+  const interfaceMode = useStore((s) => s.interfaceMode)
   const viewMode = useStore((s) => s.viewMode)
 
   return (
@@ -20,9 +22,10 @@ export default function OverlayUI() {
 
       <TopNav />
 
-      {viewMode === 'analysis' && <AnalysisView />}
-      {viewMode === 'simulation' && <SimulationView />}
-      {viewMode === 'evolution' && <EvolutionView />}
+      {interfaceMode === 'practical' && <PracticalView />}
+      {interfaceMode === 'expert' && viewMode === 'analysis' && <AnalysisView />}
+      {interfaceMode === 'expert' && viewMode === 'simulation' && <SimulationView />}
+      {interfaceMode === 'expert' && viewMode === 'evolution' && <EvolutionView />}
     </div>
   )
 }

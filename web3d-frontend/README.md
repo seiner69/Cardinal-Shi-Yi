@@ -1,73 +1,77 @@
-# React + TypeScript + Vite
+# 史易枢机前端
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+这是 `6-Bit FSM Topology Engine` 的 Web3D 前端。它使用 React、TypeScript、Vite、Zustand 和 Three.js，将后端的语义分析与物理状态机结果展示为两层界面。
 
-Currently, two official plugins are available:
+## 两层模式
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 实用模式
 
-## React Compiler
+默认入口，面向真实使用场景。用户输入一个历史事件、现实困局、项目状态或市场场景后，前端会展示：
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 当前局势
+- 关键矛盾
+- 下一步风险
+- 建议动作
+- 可信度
+- 主要后继方向
 
-## Expanding the ESLint configuration
+这一层会隐藏 `E/P/R/tau/C/Rb` 等底层参数，把复杂模型翻译成可直接阅读的判断。
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 专家模式
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+保留完整工程调试能力，包含三个视图：
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- **分析**：语义入卦、六层赋值依据、翻转预览
+- **模拟**：B1-B6、E/P/R/tau/C/Rb、误差、死锁、外部注能
+- **演化**：后继路径、张量、置信度、Monte Carlo 分布
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 本地启动
+
+后端默认运行在 `127.0.0.1:8000`，前端默认运行在 `127.0.0.1:5173`。
+
+```bash
+npm install
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+生产构建：
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run build
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+代码检查：
+
+```bash
+npm run lint
+```
+
+## API 代理
+
+Vite 会把 `/api/*` 请求代理到后端：
+
+```text
+http://127.0.0.1:5173/api/* -> http://127.0.0.1:8000/api/*
+```
+
+核心链路：
+
+```text
+用户材料 -> /api/infer -> physics_seed -> /api/physics -> 实用层 / 专家层
+```
+
+## 主要目录
+
+```text
+src/
+  components/
+    PracticalView.tsx      # 默认实用模式
+    AnalysisView.tsx       # 专家：语义分析
+    SimulationView.tsx     # 专家：物理模拟
+    EvolutionView.tsx      # 专家：演化分布
+    PhysicsResultPanel.tsx # 专家结果面板
+  store/
+    useStore.ts            # Zustand 状态和 API 调用
+  utils/
+    physicsLabels.ts       # 物理事件/相位/TTL 中文标签
 ```
