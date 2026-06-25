@@ -3,6 +3,8 @@ import { ConfidenceGauge } from './ConfidenceGauge'
 import { MonteCarloChart } from './MonteCarloChart'
 import { TypewriterLog } from './TypewriterLog'
 import { eventLabel, phaseLabel, ttlLabel } from '../utils/physicsLabels'
+import { formatBits } from '../utils/bitOrder'
+import { HexagramName } from './HexagramTextModal'
 
 const DISPLAY_BITS = [6, 5, 4, 3, 2, 1]
 
@@ -43,14 +45,14 @@ export function PhysicsResultPanel({
 
       <div className={cardClassName}>
         <div className="panel-title mb-3">
-          原始状态 -&gt; 路由后继
+          六爻显示码 -&gt; 路由后继
         </div>
         {physicsSnapshot ? (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between rounded-md border border-[#524639]/10 bg-white/50 px-3 py-2 font-mono text-[11px] text-[#26323f]">
-              <span>{physicsSnapshot.bits}</span>
+              <span>{formatBits(physicsSnapshot.bits, physicsSnapshot.display_bits)}</span>
               <span className="text-[#8a8177]">-&gt;</span>
-              <span>{physicsSnapshot.selected_next_bits ?? '多后继'}</span>
+              <span>{physicsSnapshot.selected_next_bits ? formatBits(physicsSnapshot.selected_next_bits, physicsSnapshot.display_selected_next_bits) : '多后继'}</span>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[8px]">
               <span className="text-[#8a8177]">焦点</span>
@@ -64,16 +66,29 @@ export function PhysicsResultPanel({
               <span className="text-[#8a8177]">路径</span>
               <span className="text-[#26323f]">{physicsSnapshot.route.path_number} / {physicsSnapshot.route.path_name}</span>
               <span className="text-[#8a8177]">硬中断后继</span>
-              <span className="text-[#26323f]">{physicsSnapshot.interrupt.next_bits}</span>
+              <span className="text-[#26323f]">{formatBits(physicsSnapshot.interrupt.next_bits, physicsSnapshot.interrupt.display_next_bits)}</span>
               <span className="text-[#8a8177]">路由后继</span>
-              <span className="text-[#26323f]">{physicsSnapshot.route.next_bits ?? physicsSnapshot.selected_next_bits ?? '多后继'}</span>
+              <span className="text-[#26323f]">
+                {physicsSnapshot.route.next_bits
+                  ? formatBits(physicsSnapshot.route.next_bits, physicsSnapshot.route.display_next_bits)
+                  : physicsSnapshot.selected_next_bits
+                    ? formatBits(physicsSnapshot.selected_next_bits, physicsSnapshot.display_selected_next_bits)
+                    : '多后继'}
+              </span>
             </div>
             {physicsSnapshot.route.alternatives.length > 0 && (
               <div className="flex flex-col gap-1 border-t border-[#524639]/10 pt-2">
                 {physicsSnapshot.route.alternatives.map((item) => (
                   <div key={item.key} className="flex items-center justify-between font-mono text-[8px] text-[#4f5d6a]">
                     <span>{item.operation}</span>
-                    <span>{item.bits}</span>
+                    <span className="flex items-center gap-1">
+                      {item.hexagram ? (
+                        <HexagramName name={item.hexagram} className="font-mono text-[8px] text-[#4f5d6a]">
+                          {item.hexagram}
+                        </HexagramName>
+                      ) : null}
+                      <span>{formatBits(item.bits, item.display_bits)}</span>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -141,7 +156,11 @@ export function PhysicsResultPanel({
           </div>
           {physicsSnapshot && (
             <div className="mb-2 rounded-md border border-[#524639]/10 bg-white/50 px-3 py-2 font-mono text-[10px] text-[#26323f]">
-              {physicsSnapshot.hexagram} / S={physicsSnapshot.entropy_S.toFixed(3)} / M={physicsSnapshot.mass_M.toFixed(3)}
+              <HexagramName name={physicsSnapshot.hexagram} className="font-mono text-[10px] text-[#26323f]">
+                {physicsSnapshot.hexagram}
+              </HexagramName>
+              {' '}
+              / S={physicsSnapshot.entropy_S.toFixed(3)} / M={physicsSnapshot.mass_M.toFixed(3)}
             </div>
           )}
           {physicsSnapshot?.route.description && (

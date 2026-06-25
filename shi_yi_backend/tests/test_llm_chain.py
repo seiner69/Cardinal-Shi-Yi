@@ -3,7 +3,6 @@
 """
 
 import pytest
-import json
 from src.llm.prompts import get_system_prompt, get_intent_rewrite_prompt
 from src.llm.chain import IChingChain, derive_target_hexagram
 
@@ -72,8 +71,8 @@ class TestIChingChain:
         formatted = chain._format_search_results([])
         assert "未检索到相关内容" in formatted
 
-    def test_llm_call_falls_back_when_provider_fails(self):
-        """供应商 API 失败时降级为模拟响应"""
+    def test_llm_call_returns_empty_when_provider_fails(self):
+        """供应商 API 失败时不再返回伪造 mock 结果"""
         class BrokenMessages:
             def create(self, **kwargs):
                 raise RuntimeError("provider unavailable")
@@ -86,9 +85,8 @@ class TestIChingChain:
         chain._has_api_key = True
 
         response = chain._call_llm([{"role": "user", "content": "测试"}])
-        data = json.loads(response)
 
-        assert data["inner_bits"] == "100"
+        assert response == ""
 
     def test_run_tolerates_empty_predicted_hexagrams(self):
         """意图重写没有预测卦象时仍可继续检索和分析"""

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { create } from 'zustand'
 import { eventLabel } from '../utils/physicsLabels'
+import { formatBits } from '../utils/bitOrder'
 
 export interface BitAnalysis {
   bit_position: number
@@ -41,6 +42,25 @@ export interface RetrievalResult {
   distance: number | null
 }
 
+export interface HexagramLineText {
+  position: string
+  text: string
+}
+
+export interface HexagramText {
+  name: string
+  symbol: string
+  index: number
+  gua_ci: string
+  yao: HexagramLineText[]
+  tuan: string
+  da_xiang: string
+  xiao_xiang: Record<string, string>
+  yong_jiu: string
+  yong_liu: string
+  wen_yan: string
+}
+
 export interface FSMNode {
   index: number
   name: string
@@ -65,6 +85,7 @@ export interface SimulateFlip {
   old_val: number
   new_val: number
   new_bits: string
+  display_new_bits?: string
   hexagram: string
   hex_index: number
   physics_name: string
@@ -148,6 +169,7 @@ export interface PhysicsInputs {
 
 export interface MonteCarloOutcome {
   bits: string
+  display_bits?: string
   probability: number
   count: number
   hexagram: string
@@ -157,14 +179,18 @@ export interface RouteAlternative {
   key: string
   operation: string
   bits: string
+  display_bits?: string
   hexagram?: string | null
   entropy_S?: number | null
 }
 
 export interface PhysicsSnapshot {
   bits: string
+  display_bits?: string
   inner_bits: string
   outer_bits: string
+  display_inner_bits?: string
+  display_outer_bits?: string
   hexagram: string
   entropy_S: number
   mass_M: number
@@ -172,7 +198,9 @@ export interface PhysicsSnapshot {
   event: string
   ttl: number | null
   next_bits: string
+  display_next_bits?: string
   selected_next_bits: string | null
+  display_selected_next_bits?: string | null
   tensor: PhysicsTensor
   layers: PhysicsLayer[]
   interrupt: {
@@ -180,6 +208,7 @@ export interface PhysicsSnapshot {
     event: string
     ttl: number | null
     next_bits: string
+    display_next_bits?: string
     tensor: PhysicsTensor
   }
   route: {
@@ -187,6 +216,7 @@ export interface PhysicsSnapshot {
     path_name: string
     description: string
     next_bits: string | null
+    display_next_bits?: string | null
     alternatives: RouteAlternative[]
     result: unknown
   }
@@ -203,6 +233,7 @@ export interface PhysicsSnapshot {
 
 export interface NodeInfo {
   bits: string
+  display_bits?: string
   E: number[]
   E_initial: number[]
   P: number[]
@@ -242,8 +273,13 @@ interface StoreState {
   physicsSnapshot: PhysicsSnapshot | null
   typewriterLogs: string[]
   isSimulating: boolean
+  selectedHexagramText: HexagramText | null
+  hexagramTextError: string | null
+  isHexagramTextLoading: boolean
   setInterfaceMode: (mode: 'practical' | 'expert') => void
   setViewMode: (mode: 'analysis' | 'simulation' | 'evolution') => void
+  openHexagramText: (name: string) => Promise<void>
+  closeHexagramText: () => void
   fetchInfer: (query: string) => Promise<void>
   simulateFlip: (bits: string) => Promise<SimulateFlip[]>
   evolve: (bits: string, path?: number) => Promise<EvolveResponse>
@@ -336,6 +372,21 @@ function clearPhysicsResult() {
   }
 }
 
+function getApiErrorMessage(err: unknown, fallback: string) {
+  if (axios.isAxiosError(err)) {
+    const detail = err.response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (detail && typeof detail === 'object') {
+      const message = (detail as { message?: unknown }).message
+      const reason = (detail as { reason?: unknown }).reason
+      if (typeof message === 'string' && typeof reason === 'string') return `${message} ${reason}`
+      if (typeof message === 'string') return message
+      if (typeof reason === 'string') return reason
+    }
+  }
+  return err instanceof Error ? err.message : fallback
+}
+
 export const useStore = create<StoreState>((set, get) => ({
   interfaceMode: 'practical',
   viewMode: 'analysis',
@@ -353,12 +404,48 @@ export const useStore = create<StoreState>((set, get) => ({
   physicsSnapshot: null,
   typewriterLogs: [],
   isSimulating: false,
+  selectedHexagramText: null,
+  hexagramTextError: null,
+  isHexagramTextLoading: false,
 
   setInterfaceMode: mode => set({ interfaceMode: mode }),
   setViewMode: mode => set({ viewMode: mode }),
 
+  openHexagramText: async (name: string) => {
+    const cleanName = name.trim()
+    if (!cleanName) return
+    set({ isHexagramTextLoading: true, hexagramTextError: null })
+    try {
+      const { data } = await axios.get<HexagramText>(`/api/hexagram/${encodeURIComponent(cleanName)}`)
+      set({ selectedHexagramText: data, isHexagramTextLoading: false })
+    } catch (err) {
+      console.error('hexagram text error:', err)
+      set({
+        hexagramTextError: err instanceof Error ? err.message : '卦辞加载失败',
+        isHexagramTextLoading: false,
+      })
+    }
+  },
+
+  closeHexagramText: () => set({
+    selectedHexagramText: null,
+    hexagramTextError: null,
+    isHexagramTextLoading: false,
+  }),
+
   fetchInfer: async (query: string) => {
-    set({ isLoading: true, inferError: null, physicsSeed: null })
+    set({
+      isLoading: true,
+      inferError: null,
+      fsmData: null,
+      retrievalResults: [],
+      deterministic: null,
+      simulateFlips: [],
+      nodeInfo: null,
+      physicsSeed: null,
+      typewriterLogs: [],
+      ...clearPhysicsResult(),
+    })
     try {
       const { data } = await axios.post<InferResponse>('/api/infer', { query })
       set({
@@ -372,7 +459,14 @@ export const useStore = create<StoreState>((set, get) => ({
       console.error('infer error:', err)
       set({
         isLoading: false,
-        inferError: err instanceof Error ? err.message : '分析请求失败',
+        fsmData: null,
+        retrievalResults: [],
+        deterministic: null,
+        simulateFlips: [],
+        nodeInfo: null,
+        physicsSeed: null,
+        inferError: getApiErrorMessage(err, '分析请求失败'),
+        ...clearPhysicsResult(),
       })
     }
   },
@@ -430,8 +524,8 @@ export const useStore = create<StoreState>((set, get) => ({
           confM1: data.confidence.conf_input,
         },
         typewriterLogs: [
-          `B${data.focus_bit} ${eventLabel(data.event)}，TTL=${data.ttl ?? '无穷'}，硬中断=${data.next_bits}`,
-          `路径${data.route.path_number} ${data.route.path_name}，后继=${data.selected_next_bits ?? '多后继'}`,
+          `B${data.focus_bit} ${eventLabel(data.event)}，TTL=${data.ttl ?? '无穷'}，硬中断=${formatBits(data.next_bits, data.display_next_bits)}`,
+          `路径${data.route.path_number} ${data.route.path_name}，后继=${data.selected_next_bits ? formatBits(data.selected_next_bits, data.display_selected_next_bits) : '多后继'}`,
           `T(e,p,t)=(${data.tensor.e.toFixed(2)},${data.tensor.p},${data.tensor.t.toFixed(2)})`,
         ],
         isSimulating: false,
@@ -528,5 +622,8 @@ export const useStore = create<StoreState>((set, get) => ({
     physicsSnapshot: null,
     typewriterLogs: [],
     isSimulating: false,
+    selectedHexagramText: null,
+    hexagramTextError: null,
+    isHexagramTextLoading: false,
   }),
 }))

@@ -369,7 +369,7 @@ isSimulating: boolean
 
 - **SSOT（单一事实来源）**：所有物理参数以后端API为准，前端只做展示和交互触发
 - **后端不动前端适配**：不修改后端，只调整前端适配现有API
-- **端口配置**：前端DevServer代理 `/api` → `http://127.0.0.1:8001`
+- **端口配置**：前端DevServer代理 `/api` → `http://127.0.0.1:8000`
 
 ---
 
@@ -432,7 +432,7 @@ cp .env.example .env
 # 编辑 .env 填入 DEEPSEEK_API_KEY
 
 # 启动 API 服务
-uvicorn src.api:app --reload --port 8001
+uvicorn src.api:app --reload --port 8000
 ```
 
 ### 启动前端
@@ -463,7 +463,7 @@ npm run dev
 - 重构OverlayUI为三栏布局，BottomConsole保留LLM查询
 - 修复React Hooks违规（useEffect顺序错误）
 - 修复TypeScript build错误（unused变量）
-- Vite代理端口从8000更新为8001
+- Vite代理端口统一为8000，与前端开发代理保持一致
 - Store扩展：NodeInfo、typewriterLogs、isSimulating
 
 ### V11.0 — 离散自动机可证伪版

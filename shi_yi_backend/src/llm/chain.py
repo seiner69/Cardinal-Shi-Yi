@@ -105,6 +105,15 @@ load_dotenv()
 DEFAULT_LLM_MODEL = "deepseek-v4-flash"
 
 
+class FSMAnalysisParseError(ValueError):
+    """Raised when the LLM response cannot be converted into a valid FSMOutput."""
+
+    def __init__(self, reason: str, response_preview: str = ""):
+        self.reason = reason
+        self.response_preview = response_preview
+        super().__init__(reason)
+
+
 # 三爻卦到符号的映射
 TRIGRAM_MAP = {
     bits: {**item, "gua": item["name"]}
@@ -174,7 +183,7 @@ def derive_target_hexagram(
     full_bits = inner_bits + outer_bits  # 例如 "101111"
 
     if len(full_bits) != 6 or focus_bit < 1 or focus_bit > 6:
-        return {"hexagram": "乾", "reason": "参数错误"}
+        return {"hexagram": "", "reason": "参数错误：Bit 代码或动爻不合法，不能派生目标卦"}
 
     original_hex_info = get_hexagram_info(inner_bits, outer_bits)
     original_hex = original_hex_info.get("hexagram", "")
@@ -199,7 +208,7 @@ def derive_target_hexagram(
     target_hex = new_hex_info.get("hexagram", "")
 
     if not target_hex:
-        return {"hexagram": "乾", "reason": "推导失败"}
+        return {"hexagram": "", "reason": "推导失败：当前内外卦无法映射到六十四卦"}
 
     # 构建理由
     changed_bit_name = ["初爻", "二爻", "三爻", "四爻", "五爻", "上爻"][focus_bit - 1]
@@ -250,6 +259,30 @@ class IChingChain:
             self._has_api_key = False
             print("[WARNING] 未配置可用 API Key 或 SDK，将使用模拟模式")
 
+    def _extract_response_text(self, response: Any) -> str:
+        """Collect text from Anthropic-compatible response blocks."""
+        content = getattr(response, "content", None)
+        if content is None:
+            return ""
+
+        text_parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                text_parts.append(block)
+                continue
+
+            if isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str):
+                    text_parts.append(text)
+                continue
+
+            text = getattr(block, "text", None)
+            if isinstance(text, str):
+                text_parts.append(text)
+
+        return "".join(text_parts)
+
     def _call_llm(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 4096) -> str:
         """
         调用大模型；失败时降级到本地 mock，避免 API 层直接 500。
@@ -278,27 +311,30 @@ class IChingChain:
                     "content": msg.get("content", "")
                 })
 
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                system=system_content,
-                messages=anthropic_messages,
-                temperature=temperature,
-            )
-        except Exception as exc:
-            print(f"[WARNING] LLM 调用失败，降级为模拟模式: {type(exc).__name__}: {exc}")
-            return self._mock_fsm_response(messages)
+        attempts = [
+            {"temperature": temperature, "max_tokens": max_tokens},
+            {"temperature": min(temperature, 0.2), "max_tokens": max_tokens},
+            {"temperature": 0.0, "max_tokens": max_tokens},
+        ]
+        for index, options in enumerate(attempts, 1):
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=options["max_tokens"],
+                    system=system_content,
+                    messages=anthropic_messages,
+                    temperature=options["temperature"],
+                )
+            except Exception as exc:
+                print(f"[WARNING] LLM 调用失败 attempt={index}: {type(exc).__name__}: {exc}")
+                continue
 
-        # 收集文本输出
-        text_output = ""
-        for block in response.content:
-            if block.type == "text":
-                text_output += block.text
-            elif block.type == "thinking":
-                # 可选：存储 thinking 输出
-                pass
-        return text_output
+            text_output = self._extract_response_text(response)
+            if text_output.strip():
+                return text_output
+            print(f"[WARNING] LLM 返回空文本 attempt={index}")
+
+        return ""
 
     def _mock_fsm_response(self, messages: list[dict]) -> str:
         """Mock LLM FSM response for testing"""
@@ -359,6 +395,60 @@ class IChingChain:
                 "possible_line_positions": [],
                 "rewritten_query": history_input
             }
+
+    def repair_fsm_json(self, broken_response: str) -> str:
+        """Ask the model to repair its own malformed FSM JSON. No local analysis is performed."""
+        if not broken_response.strip():
+            return ""
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你只负责修复 JSON。输入是一个不完整或格式错误的 6-Bit FSM JSON。"
+                    "不要重新分析事实，不要添加输入中没有的判断；只补全/整理为合法 JSON。"
+                    "必须只输出一个 JSON 对象，字段包括 inner_system, outer_system, inner_bits, outer_bits, "
+                    "bit_analysis, energy_focus, stress_analysis, mutation_suggestion, target_hexagram, "
+                    "hexagram_reason, referenced_yao, yao_interpretation。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"请修复以下模型输出为合法 JSON：\n{broken_response[:6000]}",
+            },
+        ]
+        return self._call_llm(messages, temperature=0.0, max_tokens=2048)
+
+    def _prepare_fsm_output_data(self, data: dict) -> dict:
+        """Normalize model JSON before Pydantic validation."""
+        if "stress_analysis" in data and isinstance(data["stress_analysis"], dict):
+            stress_type = data["stress_analysis"].get("stress_type", "稳定")
+            if "断裂" in stress_type or "燃料" in stress_type or "耗尽" in stress_type or "坍塌" in stress_type:
+                stress_type = "向下断裂"
+            elif "撞墙" in stress_type or "压强" in stress_type or "爆破" in stress_type or "挤压" in stress_type:
+                stress_type = "向上撞墙"
+            else:
+                stress_type = "稳定"
+            data["stress_analysis"]["stress_type"] = stress_type
+
+        defaults = {
+            "inner_system": data.get("inner_system", ""),
+            "outer_system": data.get("outer_system", ""),
+            "inner_bits": data.get("inner_bits", "000"),
+            "outer_bits": data.get("outer_bits", "000"),
+            "target_hexagram": data.get("target_hexagram", ""),
+            "hexagram_reason": data.get("hexagram_reason", ""),
+            "referenced_yao": data.get("referenced_yao", ""),
+            "yao_interpretation": data.get("yao_interpretation", ""),
+            "bit_analysis": data.get("bit_analysis", []),
+            "mutation_suggestion": data.get("mutation_suggestion", ""),
+            "energy_focus": data.get("energy_focus", {"focus_bit": 0, "focus_description": ""}),
+            "stress_analysis": data.get("stress_analysis", {"stress_type": "稳定", "analysis": ""}),
+        }
+        for key, value in defaults.items():
+            if key not in data or not data[key]:
+                data[key] = value
+        return data
 
     def search_knowledge_base(
         self,
@@ -422,7 +512,11 @@ class IChingChain:
             iching_context=iching_context
         )
 
-        user_prompt = """请根据上述历史背景，输出 6-Bit FSM 结构化分析。"""
+        user_prompt = (
+            "请根据上述历史背景，输出 6-Bit FSM 结构化分析。"
+            "只返回一个紧凑 JSON；bit_analysis 必须包含 B1-B6 六条；"
+            "每个 description 不超过 40 个汉字，其它说明字段不超过 80 个汉字。"
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -430,59 +524,29 @@ class IChingChain:
         ]
 
         response = self._call_llm(messages)
+        if not response.strip():
+            raise FSMAnalysisParseError(
+                reason="模型接口连续返回空文本，未进行本地规则接管。",
+                response_preview="",
+            )
 
         # 解析 JSON 响应
         try:
             data = _extract_json(response)
-
-            # 容错处理 stress_type
-            if "stress_analysis" in data and isinstance(data["stress_analysis"], dict):
-                stress_type = data["stress_analysis"].get("stress_type", "稳定")
-                if "断裂" in stress_type:
-                    stress_type = "向下断裂"
-                elif "撞墙" in stress_type:
-                    stress_type = "向上撞墙"
-                else:
-                    stress_type = "稳定"
-                data["stress_analysis"]["stress_type"] = stress_type
-
-            # 填充缺失字段的默认值
-            defaults = {
-                "inner_system": data.get("inner_system", ""),
-                "outer_system": data.get("outer_system", ""),
-                "inner_bits": data.get("inner_bits", "000"),
-                "outer_bits": data.get("outer_bits", "000"),
-                "target_hexagram": data.get("target_hexagram", ""),
-                "hexagram_reason": data.get("hexagram_reason", ""),
-                "referenced_yao": data.get("referenced_yao", ""),
-                "yao_interpretation": data.get("yao_interpretation", ""),
-                "bit_analysis": data.get("bit_analysis", []),
-                "mutation_suggestion": data.get("mutation_suggestion", ""),
-                "energy_focus": data.get("energy_focus", {"focus_bit": 0, "focus_description": ""}),
-                "stress_analysis": data.get("stress_analysis", {"stress_type": "稳定", "analysis": ""}),
-            }
-            for k, v in defaults.items():
-                if k not in data or not data[k]:
-                    data[k] = v
-
-            return FSMOutput(**data)
+            return FSMOutput(**self._prepare_fsm_output_data(data))
         except (json.JSONDecodeError, TypeError, ValidationError) as e:
             print(f"[WARNING] FSM 分析 JSON 解析失败: {e}")
-            # 返回默认结构
-            return FSMOutput(
-                inner_system="解析失败",
-                outer_system="",
-                inner_bits="000",
-                outer_bits="000",
-                bit_analysis=[],
-                energy_focus={"focus_bit": 0, "focus_description": "解析失败"},
-                stress_analysis={"stress_type": "稳定", "analysis": "解析失败"},
-                mutation_suggestion="",
-                target_hexagram="",
-                hexagram_reason="",
-                referenced_yao="",
-                yao_interpretation=""
-            )
+            repaired_response = self.repair_fsm_json(response)
+            if repaired_response.strip():
+                try:
+                    repaired_data = _extract_json(repaired_response)
+                    return FSMOutput(**self._prepare_fsm_output_data(repaired_data))
+                except (json.JSONDecodeError, TypeError, ValidationError) as repair_error:
+                    print(f"[WARNING] FSM 分析 JSON 修复失败: {repair_error}")
+            raise FSMAnalysisParseError(
+                reason=f"模型输出不是合法的 FSM JSON：{e}",
+                response_preview=response[:240],
+            ) from e
 
     def run(
         self,
@@ -533,9 +597,10 @@ class IChingChain:
             focus_bit=analysis.energy_focus.focus_bit
         )
 
-        # Override with auto-derived values
-        analysis.target_hexagram = derived["hexagram"]
-        analysis.hexagram_reason = derived["reason"]
+        # Override with auto-derived values only when the deterministic derivation is valid.
+        if derived["hexagram"]:
+            analysis.target_hexagram = derived["hexagram"]
+            analysis.hexagram_reason = derived["reason"]
 
         return analysis, search_results
 

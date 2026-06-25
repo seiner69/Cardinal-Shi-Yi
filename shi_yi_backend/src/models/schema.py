@@ -4,7 +4,7 @@
 """
 
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class IChingMetadata(BaseModel):
@@ -114,14 +114,14 @@ class HexagramReference(BaseModel):
 
 class BitAnalysis(BaseModel):
     """单Bit分析结果"""
-    bit_position: int = Field(..., description="Bit位置 (1-6)")
+    bit_position: int = Field(..., ge=1, le=6, description="Bit位置 (1-6)")
     value: Literal["0", "1"] = Field(..., description="赋值")
     description: str = Field(..., description="该Bit的事实依据")
 
 
 class EnergyFocus(BaseModel):
     """能量聚焦层（执行指针）"""
-    focus_bit: int = Field(..., description="聚焦的Bit位 (1-6)")
+    focus_bit: int = Field(..., ge=1, le=6, description="聚焦的Bit位 (1-6)")
     focus_description: str = Field(..., description="核心焦虑描述")
 
 
@@ -135,7 +135,7 @@ class FSMNode(BaseModel):
     """当前节点快照 — V2.0 确定性硬算"""
     index: int = Field(..., description="节点序号 1-64，0=未定义")
     name: str = Field(..., description="卦名")
-    code: str = Field(..., description="内部6位代码，顺序为B1→B6")
+    code: str = Field(..., description="内部6位代码，顺序为B1→B6；用户显示码为B6→B1")
     physics_description: str = Field(..., description="物理状态描述")
     entropy_S: float = Field(..., description="系统总熵")
     mass_M: int = Field(..., description="系统总质量（1的数量）")
@@ -159,12 +159,12 @@ class FSMOutput(BaseModel):
     outer_system: str = Field(..., description="外系统定义")
 
     # Step 2: 6-Bit 代码
-    inner_bits: str = Field(default="000", description="内系统3位代码B1B2B3，如 '100'")
-    outer_bits: str = Field(default="000", description="外系统3位代码B4B5B6，如 '010'")
-    bit_analysis: list[BitAnalysis] = Field(default_factory=list, description="每位赋值的事实依据")
+    inner_bits: str = Field(default="000", pattern="^[01]{3}$", description="内系统3位内部代码B1B2B3，如 '100'")
+    outer_bits: str = Field(default="000", pattern="^[01]{3}$", description="外系统3位内部代码B4B5B6，如 '010'")
+    bit_analysis: list[BitAnalysis] = Field(default_factory=list, min_length=6, max_length=6, description="B1-B6 每位赋值的事实依据，必须正好6条")
 
     # Step 3: 执行指针
-    energy_focus: EnergyFocus = Field(default_factory=lambda: {"focus_bit": 0, "focus_description": ""}, description="能量聚焦位置")
+    energy_focus: EnergyFocus = Field(default_factory=lambda: {"focus_bit": 1, "focus_description": ""}, description="能量聚焦位置")
 
     # Step 4: 物理力学硬算
     stress_analysis: StressAnalysis = Field(default_factory=lambda: {"stress_type": "稳定", "analysis": ""}, description="受力分析结果")
@@ -180,6 +180,22 @@ class FSMOutput(BaseModel):
 
     # V2.0 确定性硬算层（可选，LLM模式时为空）
     deterministic: Optional[DeterministicResult] = Field(default=None, description="V2.0 确定性硬算结果")
+
+    @model_validator(mode="after")
+    def validate_bit_analysis_matches_bits(self) -> "FSMOutput":
+        positions = [item.bit_position for item in self.bit_analysis]
+        if set(positions) != {1, 2, 3, 4, 5, 6}:
+            raise ValueError("bit_analysis must contain exactly one entry for each bit position B1-B6")
+
+        full_bits = f"{self.inner_bits}{self.outer_bits}"
+        for item in self.bit_analysis:
+            expected_value = full_bits[item.bit_position - 1]
+            if item.value != expected_value:
+                raise ValueError(
+                    f"bit_analysis value for B{item.bit_position} must match inner_bits+outer_bits"
+                )
+
+        return self
 
 
 class FinalAnalysis(BaseModel):

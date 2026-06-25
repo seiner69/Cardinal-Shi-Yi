@@ -2,6 +2,8 @@ import { useStore } from '../store/useStore'
 import { LayerInputCard } from './LayerInputCard'
 import { BitProgressBar } from './BitProgressBar'
 import { eventLabel, ttlLabel } from '../utils/physicsLabels'
+import { formatBits } from '../utils/bitOrder'
+import { PrincipleFlow } from './PrincipleFlow'
 
 const DISPLAY_BITS = [6, 5, 4, 3, 2, 1]
 
@@ -18,11 +20,13 @@ export function SimulationView() {
   const bits = physicsSnapshot?.bits ?? physicsInputs.bits
   const activeBit = physicsSnapshot?.focus_bit ?? null
   const nextBits = physicsSnapshot?.selected_next_bits ?? null
+  const displayNextBits = physicsSnapshot?.display_selected_next_bits ?? null
 
   return (
     <div className="absolute inset-0 pointer-events-none">
       <div className="absolute top-[92px] left-1/2 -translate-x-1/2 pointer-events-auto w-[780px] max-w-[94vw]">
-        <div className="glass-panel px-4 py-3">
+        <div className="glass-panel space-y-3 px-4 py-3">
+          <PrincipleFlow active="simulation" compact />
           <div className="flex flex-col items-center gap-3">
             <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
               <BitStrip bits={bits} activeBit={activeBit} />
@@ -36,7 +40,7 @@ export function SimulationView() {
                 <span>事件 <b className="text-[#26323f]">{eventLabel(physicsSnapshot.event)}</b></span>
                 <span>TTL <b className="text-[#26323f]">{ttlLabel(physicsSnapshot.ttl)}</b></span>
                 <span>路径 <b className="text-[#26323f]">{physicsSnapshot.route.path_number}</b></span>
-                <span>后继 <b className="text-[#26323f]">{physicsSnapshot.selected_next_bits ?? '多后继'}</b></span>
+                <span>后继 <b className="text-[#26323f]">{physicsSnapshot.selected_next_bits ? formatBits(physicsSnapshot.selected_next_bits, displayNextBits) : '多后继'}</b></span>
                 <span>置信 <b className="text-[#26323f]">{physicsSnapshot.confidence.conf_input.toFixed(2)}</b></span>
               </div>
             ) : (
@@ -48,14 +52,14 @@ export function SimulationView() {
         </div>
       </div>
 
-      <div className="absolute top-[260px] bottom-4 left-4 right-4 pointer-events-none overflow-y-auto md:top-[205px] md:overflow-visible">
+      <div className="absolute top-[305px] bottom-4 left-4 right-4 pointer-events-none overflow-y-auto md:top-[245px] md:overflow-visible">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div className="pointer-events-auto w-full md:w-[380px] md:max-h-[calc(100vh-220px)] md:overflow-y-auto">
+          <div className="pointer-events-auto w-full md:w-[380px] md:max-h-[calc(100vh-260px)] md:overflow-y-auto">
             <div className="glass-panel p-3">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="panel-title">原始物理输入</div>
-                  <div className="mt-1 text-[11px] text-[#8a8177]">B1-B6 内部码，界面按 B6 到 B1 展示</div>
+                  <div className="mt-1 text-[11px] text-[#8a8177]">按 B6 到 B1 显示；底层仍按 B1 到 B6 计算</div>
                 </div>
                 <button
                   onClick={() => void runPhysics()}
@@ -92,7 +96,7 @@ export function SimulationView() {
             </div>
           </div>
 
-          <div className="pointer-events-auto w-full md:w-[380px] md:max-h-[calc(100vh-220px)] md:overflow-y-auto">
+          <div className="pointer-events-auto w-full md:w-[380px] md:max-h-[calc(100vh-260px)] md:overflow-y-auto">
             <div className="glass-panel p-3">
               <div className="mb-3">
                 <div className="panel-title">路径上下文</div>

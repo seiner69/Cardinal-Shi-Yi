@@ -151,6 +151,34 @@ MONTE_CARLO_N = 1000   # Monte Carlo扰动采样次数
 U_INPUT = 0.1          # 默认输入不确定性
 
 
+def _validate_six_bits(bits: str, name: str = "bits") -> None:
+    if len(bits) != 6 or any(c not in "01" for c in bits):
+        raise ValueError(f"{name} must be exactly 6 characters of 0/1")
+
+
+def to_display_bits(internal_bits: str) -> str:
+    """
+    Convert internal calculation order B1→B6 into user-facing line order B6→B1.
+
+    Example:
+    - internal ``111000`` = lower Qian + upper Kun = 泰
+    - display  ``000111`` shows upper Kun + lower Qian = 地天泰
+    """
+    _validate_six_bits(internal_bits, "internal_bits")
+    return internal_bits[::-1]
+
+
+def from_display_bits(display_bits: str) -> str:
+    """
+    Convert user-facing line order B6→B1 into internal calculation order B1→B6.
+
+    User/display ``111000`` means upper Qian + lower Kun, so its internal code is
+    ``000111`` and the hexagram is 否, not 泰.
+    """
+    _validate_six_bits(display_bits, "display_bits")
+    return display_bits[::-1]
+
+
 # =============================================================================
 # 数据结构
 # =============================================================================
@@ -201,8 +229,7 @@ class FSMState:
             R0: 基础耗散率（默认值 0.1）
             C0: 压强累积率（默认值 0.15）
         """
-        if len(bits) != 6 or any(c not in "01" for c in bits):
-            raise ValueError("bits must be exactly 6 characters of 0/1")
+        _validate_six_bits(bits)
         B = [int(c) for c in bits]
         E_initial = [E0] * 6
         E = [E0] * 6
@@ -225,8 +252,7 @@ class FSMState:
                      E_initial: Optional[list[float]] = None,
                      R_base: Optional[list[float]] = None) -> "FSMState":
         """Build a state from measured layer-level physics inputs."""
-        if len(bits) != 6 or any(c not in "01" for c in bits):
-            raise ValueError("bits must be exactly 6 characters of 0/1")
+        _validate_six_bits(bits)
 
         def six(values: Optional[list[float]], default: float, name: str) -> list[float]:
             if values is None:
@@ -271,6 +297,10 @@ class FSMState:
     def full_bits(self) -> str:
         """返回 6 位完整字符串（Bit1 在左，Bit6 在右）"""
         return "".join(str(b) for b in self.B)
+
+    def display_bits(self) -> str:
+        """返回用户可见六爻码（Bit6 在左，Bit1 在右）"""
+        return to_display_bits(self.full_bits())
 
     def inner_bits(self) -> str:
         """返回内系统 3 位（B[1..3]）"""
@@ -870,6 +900,7 @@ def monte_carlo_state_distribution(state: FSMState,
     return [
         {
             "bits": bits,
+            "display_bits": to_display_bits(bits),
             "probability": count / N,
             "count": count,
             "hexagram": get_hexagram_name(bits[:3], bits[3:]),
@@ -914,6 +945,7 @@ def route_next_alternatives(route: dict[str, Any]) -> list[dict[str, Any]]:
                 "key": key,
                 "operation": item.get("operation", key),
                 "bits": bits,
+                "display_bits": to_display_bits(bits),
                 "hexagram": item.get("hexagram"),
                 "entropy_S": item.get("entropy_S"),
             })
@@ -943,8 +975,11 @@ def physics_snapshot(state: FSMState,
     )
     return {
         "bits": state.full_bits(),
+        "display_bits": state.display_bits(),
         "inner_bits": state.inner_bits(),
         "outer_bits": state.outer_bits(),
+        "display_inner_bits": state.inner_bits()[::-1],
+        "display_outer_bits": state.outer_bits()[::-1],
         "hexagram": get_hexagram_name(state.inner_bits(), state.outer_bits()),
         "entropy_S": discrete_entropy(state),
         "mass_M": state.mass_M(),
@@ -952,7 +987,9 @@ def physics_snapshot(state: FSMState,
         "event": interrupt["event"],
         "ttl": interrupt["ttl"],
         "next_bits": interrupt["next_bits"],
+        "display_next_bits": to_display_bits(interrupt["next_bits"]),
         "selected_next_bits": selected_next_bits,
+        "display_selected_next_bits": to_display_bits(selected_next_bits) if selected_next_bits else None,
         "tensor": interrupt["tensor"],
         "layers": interrupt["layers"],
         "interrupt": {
@@ -960,6 +997,7 @@ def physics_snapshot(state: FSMState,
             "event": interrupt["event"],
             "ttl": interrupt["ttl"],
             "next_bits": interrupt["next_bits"],
+            "display_next_bits": to_display_bits(interrupt["next_bits"]),
             "tensor": interrupt["tensor"],
         },
         "route": {
@@ -967,6 +1005,7 @@ def physics_snapshot(state: FSMState,
             "path_name": route["path_name"],
             "description": route["description"],
             "next_bits": route_next_bits,
+            "display_next_bits": to_display_bits(route_next_bits) if route_next_bits else None,
             "alternatives": route_alternatives,
             "result": route["result"],
         },

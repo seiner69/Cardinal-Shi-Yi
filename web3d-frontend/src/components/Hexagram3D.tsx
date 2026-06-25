@@ -1,5 +1,5 @@
-import { useMemo, memo } from 'react'
-import { MeshStandardMaterial, CanvasTexture, Shape, ExtrudeGeometry } from 'three'
+import { memo, useEffect, useMemo } from 'react'
+import { CanvasTexture, ExtrudeGeometry, MeshStandardMaterial, Shape } from 'three'
 
 interface Hexagram3DProps {
   bits: string
@@ -87,25 +87,31 @@ function createInkTexture(dark: boolean): CanvasTexture {
 // Materials
 // =============================================================================
 
-function useInkMaterial(tone: 'dark' | 'light') {
-  return useMemo(() => {
-    const texture = createInkTexture(tone === 'dark')
+function createInkMaterial(tone: 'dark' | 'light') {
+  const texture = createInkTexture(tone === 'dark')
+  const mat = new MeshStandardMaterial({
+    color: tone === 'dark' ? '#111111' : '#3a3a3a',
+    roughness: 0.9,
+    metalness: 0.0,
+    transparent: true,
+    opacity: 0.92,
+  })
 
-    const mat = new MeshStandardMaterial({
-      color: tone === 'dark' ? '#111111' : '#3a3a3a',
-      roughness: 0.9,
-      metalness: 0.0,
-      transparent: true,
-      opacity: 0.92,
-    })
+  mat.map = texture
+  mat.alphaMap = texture
+  mat.depthWrite = false
 
-    mat.map = texture
-    mat.alphaMap = texture
-    mat.transparent = true
-    mat.depthWrite = false
+  return mat
+}
 
-    return mat
-  }, [tone])
+function disposeMaterial(material: MeshStandardMaterial) {
+  const texture = material.map
+  if (texture) {
+    texture.dispose()
+  }
+  material.alphaMap = null
+  material.map = null
+  material.dispose()
 }
 
 // =============================================================================
@@ -134,20 +140,16 @@ function createBrushStrokeShape(): Shape {
   return shape
 }
 
-function Yang({ index }: { index: number }) {
+function Yang({
+  index,
+  geometry,
+  material,
+}: {
+  index: number
+  geometry: ExtrudeGeometry
+  material: MeshStandardMaterial
+}) {
   const y = index * GAP_Y - Y_OFFSET
-  const material = useInkMaterial('dark')
-
-  const geometry = useMemo(() => {
-    const shape = createBrushStrokeShape()
-    return new ExtrudeGeometry(shape, {
-      depth: 0.16,
-      bevelEnabled: true,
-      bevelThickness: 0.03,
-      bevelSize: 0.03,
-      bevelSegments: 3,
-    })
-  }, [])
 
   return (
     <mesh position={[0, y, 0]} rotation={[0, 0, 0]} scale={[1, 1, 0.2]} material={material} geometry={geometry} />
@@ -180,34 +182,23 @@ function createYinSegmentShape(startTaper: number, endTaper: number): Shape {
   return shape
 }
 
-function Yin({ index }: { index: number }) {
+function Yin({
+  index,
+  leftGeometry,
+  rightGeometry,
+  material,
+}: {
+  index: number
+  leftGeometry: ExtrudeGeometry
+  rightGeometry: ExtrudeGeometry
+  material: MeshStandardMaterial
+}) {
   const y = index * GAP_Y - Y_OFFSET
-  const material = useInkMaterial('light')
-
-  const leftGeom = useMemo(() => {
-    return new ExtrudeGeometry(createYinSegmentShape(0.5, 1.0), {
-      depth: 0.14,
-      bevelEnabled: true,
-      bevelThickness: 0.025,
-      bevelSize: 0.025,
-      bevelSegments: 2,
-    })
-  }, [])
-
-  const rightGeom = useMemo(() => {
-    return new ExtrudeGeometry(createYinSegmentShape(1.0, 0.5), {
-      depth: 0.14,
-      bevelEnabled: true,
-      bevelThickness: 0.025,
-      bevelSize: 0.025,
-      bevelSegments: 2,
-    })
-  }, [])
 
   return (
     <>
-      <mesh position={[-YIN_OFFSET_X, y, 0]} scale={[1, 1, 0.2]} material={material} geometry={leftGeom} />
-      <mesh position={[YIN_OFFSET_X, y, 0]} scale={[1, 1, 0.2]} material={material} geometry={rightGeom} />
+      <mesh position={[-YIN_OFFSET_X, y, 0]} scale={[1, 1, 0.2]} material={material} geometry={leftGeometry} />
+      <mesh position={[YIN_OFFSET_X, y, 0]} scale={[1, 1, 0.2]} material={material} geometry={rightGeometry} />
     </>
   )
 }
@@ -217,18 +208,77 @@ function Yin({ index }: { index: number }) {
 // =============================================================================
 
 const Hexagram3D = memo(function Hexagram3D({ bits }: Hexagram3DProps) {
+  const normalizedBits = bits.padEnd(6, '0').slice(0, 6)
+
   if (bits.length !== 6) {
     console.warn('Hexagram3D: bits must be exactly 6 characters')
   }
 
+  const assets = useMemo(() => {
+    const yangGeometry = new ExtrudeGeometry(createBrushStrokeShape(), {
+      depth: 0.16,
+      bevelEnabled: true,
+      bevelThickness: 0.03,
+      bevelSize: 0.03,
+      bevelSegments: 3,
+    })
+    const yinLeftGeometry = new ExtrudeGeometry(createYinSegmentShape(0.5, 1.0), {
+      depth: 0.14,
+      bevelEnabled: true,
+      bevelThickness: 0.025,
+      bevelSize: 0.025,
+      bevelSegments: 2,
+    })
+    const yinRightGeometry = new ExtrudeGeometry(createYinSegmentShape(1.0, 0.5), {
+      depth: 0.14,
+      bevelEnabled: true,
+      bevelThickness: 0.025,
+      bevelSize: 0.025,
+      bevelSegments: 2,
+    })
+
+    return {
+      darkMaterial: createInkMaterial('dark'),
+      lightMaterial: createInkMaterial('light'),
+      yangGeometry,
+      yinLeftGeometry,
+      yinRightGeometry,
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      assets.yangGeometry.dispose()
+      assets.yinLeftGeometry.dispose()
+      assets.yinRightGeometry.dispose()
+      disposeMaterial(assets.darkMaterial)
+      disposeMaterial(assets.lightMaterial)
+    }
+  }, [assets])
+
   return (
     <group>
-      {bits.split('').map((bit, index) => {
+      {normalizedBits.split('').map((bit, index) => {
         const isYang = bit === '1'
         if (isYang) {
-          return <Yang key={index} index={index} />
+          return (
+            <Yang
+              key={index}
+              index={index}
+              geometry={assets.yangGeometry}
+              material={assets.darkMaterial}
+            />
+          )
         }
-        return <Yin key={index} index={index} />
+        return (
+          <Yin
+            key={index}
+            index={index}
+            leftGeometry={assets.yinLeftGeometry}
+            rightGeometry={assets.yinRightGeometry}
+            material={assets.lightMaterial}
+          />
+        )
       })}
     </group>
   )

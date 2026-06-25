@@ -4,6 +4,7 @@ import { AnalysisView } from './AnalysisView'
 import { SimulationView } from './SimulationView'
 import { EvolutionView } from './EvolutionView'
 import { PracticalView } from './PracticalView'
+import { HexagramTextModal } from './HexagramTextModal'
 
 export default function OverlayUI() {
   const interfaceMode = useStore((s) => s.interfaceMode)
@@ -26,6 +27,7 @@ export default function OverlayUI() {
       {interfaceMode === 'expert' && viewMode === 'analysis' && <AnalysisView />}
       {interfaceMode === 'expert' && viewMode === 'simulation' && <SimulationView />}
       {interfaceMode === 'expert' && viewMode === 'evolution' && <EvolutionView />}
+      <HexagramTextModal />
     </div>
   )
 }

@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
 import type { MonteCarloOutcome } from '../store/useStore'
+import { formatBits } from '../utils/bitOrder'
+import { HexagramName } from './HexagramTextModal'
 
 interface MonteCarloChartProps {
   confM1: number
@@ -41,8 +43,14 @@ export function MonteCarloChart({ confM1, outcomes = [] }: MonteCarloChartProps)
       {outcomes.length > 0 ? (
         <div className="flex flex-col gap-1">
           {outcomes.map((outcome) => (
-            <div key={outcome.bits} className="grid grid-cols-[64px_1fr_42px] items-center gap-2">
-              <span className="font-mono text-[8px] text-[#4f5d6a]">{outcome.bits}</span>
+            <div key={outcome.bits} className="grid grid-cols-[76px_1fr_42px] items-center gap-2">
+              {outcome.hexagram ? (
+                <HexagramName name={outcome.hexagram} className="font-mono text-[8px] text-[#4f5d6a]">
+                  {outcome.hexagram}
+                </HexagramName>
+              ) : (
+                <span className="font-mono text-[8px] text-[#4f5d6a]">{formatBits(outcome.bits, outcome.display_bits)}</span>
+              )}
               <div className="h-2 overflow-hidden rounded bg-[#e6dfd4]/70">
                 <div
                   className="h-full bg-[#0f766e]/70"

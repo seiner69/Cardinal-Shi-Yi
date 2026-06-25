@@ -1,5 +1,4 @@
-import { Canvas } from '@react-three/fiber'
-import { useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { Group } from 'three'
 import { OrbitControls as ThreeOrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -29,15 +28,27 @@ function OrbitControls() {
 function RotatingGroup({ children, isLoading }: { children: React.ReactNode; isLoading: boolean }) {
   const groupRef = useRef<Group>(null)
   const floatRef = useRef(0)
+  const { size } = useThree()
+  const isMobile = size.width < 640
+  const baseY = isMobile ? 1.35 : 0
+  const baseScale = isMobile ? 0.82 : 1
+
+  useEffect(() => {
+    if (!groupRef.current) return
+    groupRef.current.scale.setScalar(baseScale)
+    groupRef.current.position.y = baseY
+  }, [baseScale, baseY])
 
   useFrame((_, delta) => {
+    if (document.hidden) return
     if (groupRef.current) {
-      groupRef.current.rotation.y += delta * (isLoading ? 1.5 : 0.42)
+      const frameDelta = Math.min(delta, 0.033)
+      groupRef.current.rotation.y += frameDelta * (isLoading ? 1.5 : 0.42)
       if (isLoading) {
-        floatRef.current += delta * 3
-        groupRef.current.position.y = Math.sin(floatRef.current) * 0.15
+        floatRef.current += frameDelta * 3
+        groupRef.current.position.y = baseY + Math.sin(floatRef.current) * 0.15
       } else {
-        groupRef.current.position.y = 0
+        groupRef.current.position.y = baseY
       }
     }
   })
@@ -76,9 +87,15 @@ function Scene() {
 function App() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[#f5f3ee]">
-      <Canvas>
-        <Scene />
-      </Canvas>
+      <div className="scene-canvas absolute inset-0">
+        <Canvas
+          camera={{ position: [0, 0, 7], fov: 48 }}
+          dpr={[1, 1.5]}
+          gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+        >
+          <Scene />
+        </Canvas>
+      </div>
       <OverlayUI />
     </div>
   )

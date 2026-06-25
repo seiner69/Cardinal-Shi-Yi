@@ -10,7 +10,7 @@ export function TopNav() {
   const { interfaceMode, viewMode, setInterfaceMode, setViewMode } = useStore()
 
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto">
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto sm:left-auto sm:right-6 sm:translate-x-0">
       <div className="glass-panel flex flex-col items-center gap-1 p-1 sm:flex-row">
         <div className="flex items-center gap-1">
           {[

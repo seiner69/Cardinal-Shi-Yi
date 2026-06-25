@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-from typing import Optional
+from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.models.schema import FSMOutput, FSMNode, DeterministicResult
+from src.data.hexagrams import HEXAGRAM_DATA
 from src.fsm_kernel import (
     FSMKernel,
     FSMState,
@@ -37,8 +38,10 @@ from src.fsm_kernel import (
     compute_system_confidence,
     physics_snapshot,
     MONTE_CARLO_N,
+    from_display_bits,
+    to_display_bits,
 )
-from src.llm.chain import IChingChain
+from src.llm.chain import FSMAnalysisParseError, IChingChain
 
 app = FastAPI(title="史易枢机 V11.0", version="11.0.0")
 
@@ -47,13 +50,13 @@ app = FastAPI(title="史易枢机 V11.0", version="11.0.0")
 # =============================================================================
 
 class SimulateRequest(BaseModel):
-    bits: str = Field(..., description="6位代码，如 '111000'")
+    bits: str = Field(..., description="6位代码；默认 internal=B1→B6")
     E0: float = Field(default=1.0, description="初始能量储备")
     P0: float = Field(default=0.0, description="初始压强")
 
 
 class EvolveRequest(BaseModel):
-    bits: str = Field(..., description="6位代码")
+    bits: str = Field(..., description="6位代码；默认 internal=B1→B6")
     path: Optional[int] = Field(default=None, description="演化路径 1/2/3/4，None=自动路由")
     delta_E_ext: float = Field(default=0.0, description="外部能量注入率")
     deadlock_flag: bool = Field(default=False, description="死锁标志位")
@@ -72,7 +75,7 @@ class PhysicsUncertainty(BaseModel):
 
 
 class PhysicsRequest(BaseModel):
-    bits: str = Field(..., description="6-bit state, e.g. '111000'")
+    bits: str = Field(..., description="6-bit state. Default order is internal B1→B6.")
     E: list[float] = Field(..., description="Current fuel/energy per layer")
     P: list[float] = Field(..., description="Current pressure per layer")
     R: list[float] = Field(..., description="Dissipation rate per layer")
@@ -85,6 +88,21 @@ class PhysicsRequest(BaseModel):
     deadlock_flag: bool = Field(default=False, description="Whether the system is in absolute deadlock")
     time_in_state: int = Field(default=0, ge=0, description="Ticks spent in current state")
     monte_carlo_N: int = Field(default=MONTE_CARLO_N, ge=1, le=10000)
+    code_order: Literal["internal", "display"] = Field(default="internal", description="bits 字段顺序：internal=B1→B6，display=B6→B1")
+
+
+class HexagramTextResponse(BaseModel):
+    name: str
+    symbol: str = ""
+    index: int = 0
+    gua_ci: str = ""
+    yao: list[dict[str, str]] = Field(default_factory=list)
+    tuan: str = ""
+    da_xiang: str = ""
+    xiao_xiang: dict[str, str] = Field(default_factory=dict)
+    yong_jiu: str = ""
+    yong_liu: str = ""
+    wen_yan: str = ""
 
 
 # =============================================================================
@@ -103,6 +121,31 @@ def state_to_fsm_node(state: FSMState) -> FSMNode:
         entropy_S=discrete_entropy(state),
         mass_M=state.mass_M(),
     )
+
+
+def decode_bits(bits: str, code_order: Literal["internal", "display"] = "internal") -> str:
+    """Decode API bits into internal B1→B6 order."""
+    return from_display_bits(bits) if code_order == "display" else bits
+
+
+def yao_sort_key(item: tuple[str, str] | list[str]) -> int:
+    """Sort爻辞 from 初爻 to 上爻 even when the source row is out of order."""
+    if not item:
+        return 99
+    position = str(item[0])
+    if position.startswith("初"):
+        return 1
+    if "二" in position:
+        return 2
+    if "三" in position:
+        return 3
+    if "四" in position:
+        return 4
+    if "五" in position:
+        return 5
+    if position.startswith("上"):
+        return 6
+    return 99
 
 
 def build_deterministic_result(state: FSMState,
@@ -340,6 +383,33 @@ def root():
     return {"message": "史易枢机 V11.0 — 影子协议离散自动机确定性演化引擎", "version": "11.0.0"}
 
 
+@app.get("/api/hexagram/{name}", response_model=HexagramTextResponse)
+def hexagram_text(name: str):
+    """返回单卦的周易原文：卦辞、六爻、彖传、象传。"""
+    data = HEXAGRAM_DATA.get(name)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Hexagram not found: {name}")
+
+    yao = sorted(data.get("yao", []), key=yao_sort_key)
+    return {
+        "name": name,
+        "symbol": data.get("symbol", ""),
+        "index": data.get("index", 0),
+        "gua_ci": data.get("gua_ci", ""),
+        "yao": [
+            {"position": item[0], "text": item[1]}
+            for item in yao
+            if isinstance(item, (tuple, list)) and len(item) >= 2
+        ],
+        "tuan": data.get("tuan", ""),
+        "da_xiang": data.get("da_xiang", ""),
+        "xiao_xiang": data.get("xiao_xiang", {}),
+        "yong_jiu": data.get("yong_jiu", ""),
+        "yong_liu": data.get("yong_liu", ""),
+        "wen_yan": data.get("wen_yan", ""),
+    }
+
+
 @app.post("/api/infer")
 def infer(body: InferRequest):
     """
@@ -352,8 +422,18 @@ def infer(body: InferRequest):
     """
     chain = IChingChain()
 
-    # 运行 LLM 链路
-    fsm_result, retrieval = chain.run(body.query)
+    # 运行 LLM 链路。结构化解析失败必须显式返回错误，避免默认 bits 继续进入硬算。
+    try:
+        fsm_result, retrieval = chain.run(body.query)
+    except FSMAnalysisParseError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "FSM_ANALYSIS_PARSE_FAILED",
+                "message": "模型输出未能解析为六层状态机结构，请重试或改用专家模式手动录入。",
+                "reason": exc.reason,
+            },
+        ) from exc
 
     # 从 LLM 结果中提取 bits，构建 V2.0 硬算
     try:
@@ -387,7 +467,7 @@ def physics(body: PhysicsRequest):
     """
     try:
         state = FSMState.from_physics(
-            bits=body.bits,
+            bits=decode_bits(body.bits, body.code_order),
             E=body.E,
             P=body.P,
             R=body.R,
@@ -411,12 +491,12 @@ def physics(body: PhysicsRequest):
 
 
 @app.get("/api/simulate")
-def simulate(bits: str, E0: float = 1.0, P0: float = 0.0):
+def simulate(bits: str, E0: float = 1.0, P0: float = 0.0, code_order: Literal["internal", "display"] = "internal"):
     """
     给定 6 位代码，返回全部 6 种 Bit Flip 预览
     """
     try:
-        state = FSMState.from_bits(bits, E0=E0, P0=P0)
+        state = FSMState.from_bits(decode_bits(bits, code_order), E0=E0, P0=P0)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -426,7 +506,8 @@ def simulate(bits: str, E0: float = 1.0, P0: float = 0.0):
 
     return {
         "current": {
-            "bits": bits,
+            "bits": state.full_bits(),
+            "display_bits": state.display_bits(),
             "hexagram": current_hex,
             "index": hex_index,
             "physics_name": physics_name,
@@ -441,6 +522,7 @@ def simulate(bits: str, E0: float = 1.0, P0: float = 0.0):
                 "old_val": f["old_val"],
                 "new_val": f["new_val"],
                 "new_bits": f["new_bits"],
+                "display_new_bits": to_display_bits(f["new_bits"]),
                 "hexagram": f["hexagram"],
                 "hex_index": f["hex_index"],
                 "physics_name": f["physics_name"],
@@ -457,7 +539,8 @@ def evolve(bits: str,
            path: Optional[int] = None,
            delta_E_ext: float = 0.0,
            deadlock_flag: bool = False,
-           time_in_state: int = 0):
+           time_in_state: int = 0,
+           code_order: Literal["internal", "display"] = "internal"):
     """
     确定性演化
 
@@ -468,7 +551,7 @@ def evolve(bits: str,
     - path=4: 路径四 全翻/倒置
     """
     try:
-        state = FSMState.from_bits(bits)
+        state = FSMState.from_bits(decode_bits(bits, code_order))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -532,10 +615,10 @@ def evolve(bits: str,
 
 
 @app.get("/api/node")
-def node(bits: str):
+def node(bits: str, code_order: Literal["internal", "display"] = "internal"):
     """查询当前节点信息"""
     try:
-        state = FSMState.from_bits(bits)
+        state = FSMState.from_bits(decode_bits(bits, code_order))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -544,8 +627,11 @@ def node(bits: str):
 
     return {
         "bits": state.full_bits(),
+        "display_bits": state.display_bits(),
         "inner_bits": state.inner_bits(),
         "outer_bits": state.outer_bits(),
+        "display_inner_bits": state.inner_bits()[::-1],
+        "display_outer_bits": state.outer_bits()[::-1],
         "hexagram": hexagram,
         "hex_index": hex_index,
         "physics_name": physics_name,
